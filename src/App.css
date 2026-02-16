@@ -1,0 +1,169 @@
+.app-shell {
+  min-height: 100vh;
+  padding: 1.25rem;
+  color: #1f1f1f;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.5vw, 2.1rem);
+}
+
+.app-header p {
+  margin: 0.4rem 0 1rem;
+  color: #404040;
+}
+
+.app-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.map-panel {
+  border: 1px solid #cbcbcb;
+  border-radius: 14px;
+  background: #fefefe;
+  overflow: auto;
+}
+
+.map-panel svg {
+  width: 100%;
+  height: auto;
+  min-width: 980px;
+  display: block;
+  background-image: radial-gradient(#ececec 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.section-title {
+  font-size: 27px;
+  font-weight: 650;
+  fill: #4c4c4c;
+}
+
+.edge {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0.25;
+  transition: opacity 180ms ease, stroke-width 180ms ease;
+}
+
+.edge.highlighted {
+  opacity: 0.9;
+  stroke-width: 2.6;
+}
+
+.edge-label {
+  font-size: 11px;
+  fill: #3e3e3e;
+  text-anchor: middle;
+}
+
+.node-group {
+  cursor: pointer;
+}
+
+.node-group:focus-visible {
+  outline: none;
+}
+
+.node-rect {
+  stroke-width: 1.5;
+  opacity: 0.76;
+  transition: opacity 180ms ease, stroke-width 180ms ease;
+}
+
+.node-rect.connected {
+  opacity: 0.97;
+}
+
+.node-group.selected .node-rect {
+  stroke: #101010;
+  stroke-width: 2.7;
+  opacity: 1;
+}
+
+.node-label {
+  font-size: 14px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  fill: #1f1f1f;
+}
+
+.narration-panel {
+  border: 1px solid #cbcbcb;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.narration-panel h2 {
+  margin: 0;
+}
+
+.narration-panel h3 {
+  margin: 0.95rem 0 0.4rem;
+}
+
+.narration-panel ul,
+.narration-panel ol {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.narration-panel li {
+  margin-bottom: 0.45rem;
+  line-height: 1.4;
+}
+
+.node-description {
+  margin: 0.3rem 0 0.8rem;
+  color: #4e4e4e;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin: 0.35rem 0 0.9rem;
+  font-size: 0.87rem;
+  color: #2f2f2f;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.swatch.worsen {
+  background: #cf3d3d;
+}
+
+.swatch.improve {
+  background: #2f8f59;
+}
+
+.swatch.neutral {
+  background: #6f6f6f;
+}
+
+@media (max-width: 1080px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .narration-panel {
+    order: -1;
+  }
+}
