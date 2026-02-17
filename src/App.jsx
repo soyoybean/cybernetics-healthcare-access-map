@@ -168,6 +168,46 @@ const buildCurve = (source, target) => {
   }
 }
 
+const isInsideNodeBounds = (x, y, node) => {
+  const halfW = NODE_WIDTH / 2 + 16
+  const halfH = NODE_HEIGHT / 2 + 12
+  return (
+    x >= node.x - halfW &&
+    x <= node.x + halfW &&
+    y >= node.y - halfH &&
+    y <= node.y + halfH
+  )
+}
+
+const getLabelPosition = (source, target, geometry) => {
+  const dx = target.x - source.x
+  const dy = target.y - source.y
+  const distance = Math.hypot(dx, dy) || 1
+  const nx = -dy / distance
+  const ny = dx / distance
+  const tx = dx / distance
+  const ty = dy / distance
+
+  const tries = [
+    { n: 22, t: 0 },
+    { n: -22, t: 0 },
+    { n: 34, t: 12 },
+    { n: -34, t: -12 },
+    { n: 44, t: 20 },
+    { n: -44, t: -20 },
+  ]
+
+  for (const attempt of tries) {
+    const x = geometry.midX + nx * attempt.n + tx * attempt.t
+    const y = geometry.midY + ny * attempt.n + ty * attempt.t
+    if (!isInsideNodeBounds(x, y, source) && !isInsideNodeBounds(x, y, target)) {
+      return { x, y }
+    }
+  }
+
+  return { x: geometry.midX + nx * 22, y: geometry.midY + ny * 22 }
+}
+
 const getNeighborhood = ({ startId, depth, bySource, byTarget }) => {
   if (!startId) return { nodeIds: new Set(), edgeIds: new Set() }
   const nodeIds = new Set([startId])
@@ -566,6 +606,7 @@ const GraphCanvas = memo(function GraphCanvas({
   onNodeClick,
   onEdgeClick,
   onNodeDoubleClick,
+  onBackgroundClick,
   setTooltip,
   commentsByTarget,
   zoom,
@@ -578,12 +619,16 @@ const GraphCanvas = memo(function GraphCanvas({
 }) {
   const showAggregate = !selectedNodeId
   const verbFont = Math.max(8, 12 / Math.max(zoom, 0.7))
+  const markerScale = Math.max(0.8, Math.min(2.4, 1 / Math.max(zoom, 0.45)))
+  const markerWidth = 10 * markerScale
+  const markerHeight = 8 * markerScale
   const renderedEdges = useMemo(
     () =>
       linksToRender.map((edge) => {
         const source = nodesById[edge.source]
         const target = nodesById[edge.target]
         const geometry = buildCurve(source, target)
+        const labelPos = getLabelPosition(source, target, geometry)
         const style = edgeStyle[edge.edgeType]
         const active = highlightedEdgeIds.has(edge.id) || storyEdgeIds.has(edge.id)
         const faded = selectedNodeId ? !active : false
@@ -607,6 +652,7 @@ const GraphCanvas = memo(function GraphCanvas({
           target,
           geometry,
           style,
+          labelPos,
           active,
           faded,
           isSelected,
@@ -635,17 +681,20 @@ const GraphCanvas = memo(function GraphCanvas({
         aria-label="Healthcare access causal graph"
         onPointerDown={onPointerDown}
         onWheel={onWheel}
+        onClick={onBackgroundClick}
       >
         <defs>
           {Object.entries(edgeStyle).map(([key, value]) => (
             <marker
               id={value.marker}
               key={key}
-              markerWidth="14"
-              markerHeight="14"
+              viewBox="0 0 10 8"
+              markerWidth={markerWidth}
+              markerHeight={markerHeight}
               refX="9"
               refY="4"
               orient="auto"
+              markerUnits="userSpaceOnUse"
             >
               <path d="M0,0 L10,4 L0,8 Z" fill={value.color} />
             </marker>
@@ -677,7 +726,7 @@ const GraphCanvas = memo(function GraphCanvas({
                   onEdgeClick(edge)
                 }}
               >
-                <path
+              <path
                   d={geometry.path}
                   className={`edge ${active ? 'active' : ''} ${faded ? 'faded' : ''}`}
                   stroke={style.color}
@@ -742,17 +791,26 @@ const GraphCanvas = memo(function GraphCanvas({
             )
           })}
 
-          {renderedEdges.map(({ edge, geometry, faded, label }) =>
+          {renderedEdges.map(({ edge, geometry, labelPos, faded, label }) =>
             label ? (
-              <text
-                key={`${edge.id}-label`}
-                className={`edge-verb ${faded ? 'faded' : ''}`}
-                x={geometry.midX}
-                y={geometry.midY - 5}
-                style={{ fontSize: `${verbFont}px` }}
-              >
-                {label}
-              </text>
+              <g key={`${edge.id}-label`} className={faded ? 'faded' : ''}>
+                <rect
+                  className="edge-label-pill"
+                  x={labelPos.x - (label.length * verbFont * 0.3 + 8)}
+                  y={labelPos.y - 18}
+                  width={label.length * verbFont * 0.6 + 16}
+                  height={verbFont + 8}
+                  rx="8"
+                />
+                <text
+                  className={`edge-verb ${faded ? 'faded' : ''}`}
+                  x={labelPos.x}
+                  y={labelPos.y - 6}
+                  style={{ fontSize: `${verbFont}px` }}
+                >
+                  {label}
+                </text>
+              </g>
             ) : null,
           )}
         </g>
@@ -779,6 +837,7 @@ function App() {
   const [zoom, setZoom] = useState(0.78)
   const [pan, setPan] = useState({ x: 60, y: 30 })
   const [animateCamera, setAnimateCamera] = useState(true)
+  const [tooltipRaw, setTooltipRaw] = useState(null)
   const [tooltip, setTooltip] = useState(null)
   const [manualNavAt, setManualNavAt] = useState(0)
 
@@ -940,6 +999,13 @@ function App() {
   }, [selectedNodeId, selectedEdge])
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setTooltip(tooltipRaw)
+    }, 120)
+    return () => clearTimeout(timer)
+  }, [tooltipRaw])
+
+  useEffect(() => {
     const seen = sessionStorage.getItem('health-map-onboarding-dismissed')
     setOnboardingVisible(!seen)
   }, [])
@@ -1038,6 +1104,13 @@ function App() {
     }
   }
 
+  const clearSelection = () => {
+    setSelectedNodeId('')
+    setSelectedEdge(null)
+    setStoryPlaying(false)
+    setStoryStep(0)
+  }
+
   return (
     <div className="app-shell">
       <SettingsDrawer
@@ -1124,7 +1197,8 @@ function App() {
               setManualNavAt(0)
               focusOnNode(nodeId, 1.18)
             }}
-            setTooltip={setTooltip}
+            onBackgroundClick={clearSelection}
+            setTooltip={setTooltipRaw}
             commentsByTarget={commentsByTarget}
             zoom={zoom}
             pan={pan}

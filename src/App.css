@@ -99,16 +99,21 @@
 }
 
 .hover-banner {
-  min-height: 2.2rem;
+  min-height: 100px;
+  max-height: 100px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.08rem;
   border: 1px solid #d7d7d7;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.96);
   padding: 0.35rem 0.55rem;
   margin-bottom: 0.4rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .map-canvas {
@@ -140,14 +145,15 @@
 
 .edge {
   fill: none;
-  stroke-width: 3.1;
+  stroke-width: 2.9;
   stroke-linecap: round;
-  opacity: 0.98;
+  opacity: 0.8;
   transition: opacity 120ms linear;
 }
 
 .edge.active {
-  stroke-width: 4.2;
+  stroke-width: 3.2;
+  opacity: 0.95;
 }
 
 .edge.faded,
@@ -161,10 +167,15 @@
 .edge-verb {
   text-anchor: middle;
   fill: #1a1a1a;
-  paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.96);
-  stroke-width: 4;
+  paint-order: normal;
+  stroke: none;
   font-weight: 700;
+}
+
+.edge-label-pill {
+  fill: rgba(255, 255, 255, 0.85);
+  stroke: rgba(190, 190, 190, 0.8);
+  stroke-width: 0.8;
 }
 
 .loop-icon {
