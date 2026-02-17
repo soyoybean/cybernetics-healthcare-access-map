@@ -23,10 +23,10 @@ const groupMeta = {
 }
 
 const edgeStyle = {
-  'burden+': { color: '#0072B2', marker: 'arrow-bplus', label: 'burden+ (increases burden)' },
-  'burden-': { color: '#E69F00', marker: 'arrow-bminus', label: 'burden- (reduces burden)' },
-  operational: { color: '#7F7F7F', marker: 'arrow-op', label: 'operational (neutral link)' },
-  feedback: { color: '#7F7F7F', marker: 'arrow-fb', label: 'feedback loop' },
+  'burden+': { color: '#0072B2', label: 'burden+ (increases burden)' },
+  'burden-': { color: '#E69F00', label: 'burden- (reduces burden)' },
+  operational: { color: '#7F7F7F', label: 'operational (neutral link)' },
+  feedback: { color: '#7F7F7F', label: 'feedback loop' },
 }
 
 const baseNodes = [
@@ -59,6 +59,7 @@ const baseNodes = [
 
 const nodes = baseNodes.map((node) => ({
   ...node,
+  description: node.description || node.summary,
   x: Math.round(node.x * SCALE_FACTOR),
   y: Math.round(node.y * SCALE_FACTOR),
 }))
@@ -135,9 +136,9 @@ const isSmallScreen = () => window.matchMedia('(max-width: 1080px)').matches
 
 const parseStateFromUrl = () => {
   const params = new URLSearchParams(window.location.search)
-  const selectedNode = params.get('selectedNode') || ''
+  const selectedNode = ''
   const depth = Number(params.get('depth') || '1')
-  const activeStory = params.get('story') || ''
+  const activeStory = ''
   const filters = {
     companies: params.get('f_companies') !== '0',
     products: params.get('f_products') !== '0',
@@ -148,23 +149,49 @@ const parseStateFromUrl = () => {
   return { selectedNode, depth: [1, 2, 3].includes(depth) ? depth : 1, activeStory, filters }
 }
 
+const getRectAnchor = (from, to, padding = 14) => {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  if (dx === 0 && dy === 0) {
+    return { x: from.x, y: from.y }
+  }
+
+  const halfW = NODE_WIDTH / 2 + padding
+  const halfH = NODE_HEIGHT / 2 + padding
+
+  const tx = dx === 0 ? Infinity : Math.abs(halfW / dx)
+  const ty = dy === 0 ? Infinity : Math.abs(halfH / dy)
+  const t = Math.min(tx, ty)
+
+  return {
+    x: from.x + dx * t,
+    y: from.y + dy * t,
+  }
+}
+
 const buildCurve = (source, target) => {
-  const dx = target.x - source.x
-  const dy = target.y - source.y
+  const start = getRectAnchor(source, target, 14)
+  const end = getRectAnchor(target, source, 16)
+  const dx = end.x - start.x
+  const dy = end.y - start.y
   const distance = Math.hypot(dx, dy)
   const unitX = distance === 0 ? 0 : dx / distance
   const unitY = distance === 0 ? 0 : dy / distance
-  const startX = source.x + unitX * 36
-  const startY = source.y + unitY * 24
-  const endX = target.x - unitX * 36
-  const endY = target.y - unitY * 24
-  const curve = Math.max(-180, Math.min(180, dx * 0.09))
+  const startX = start.x
+  const startY = start.y
+  const endX = end.x
+  const endY = end.y
+  const curve = Math.max(-180, Math.min(180, (target.x - source.x) * 0.09))
   const controlY = (startY + endY) / 2 + curve
 
   return {
     path: `M ${startX} ${startY} C ${startX} ${controlY}, ${endX} ${controlY}, ${endX} ${endY}`,
     midX: (startX + endX) / 2,
     midY: (startY + endY) / 2,
+    endX,
+    endY,
+    unitX,
+    unitY,
   }
 }
 
@@ -469,6 +496,10 @@ const RightPanel = memo(function RightPanel({
   onNext,
   onBack,
   onReset,
+  hoveredAssocEdgeId,
+  lockedAssocEdgeId,
+  setHoveredAssocEdgeId,
+  setLockedAssocEdgeId,
   comments,
   userIdentifier,
   setUserIdentifier,
@@ -524,13 +555,20 @@ const RightPanel = memo(function RightPanel({
       {selectedNode && (
         <section className="structured-card">
           <h3>{selectedNode.label}</h3>
+          <p className="node-description">{truncate(selectedNode.description || '', 80)}</p>
           <h4>Involved Stakeholders & Impact Story</h4>
 
           {tab === 'Overview' && (
             <>
               <ul className="impact-list">
                 {details.directPairs.slice(0, 3).map((item) => (
-                  <li key={item.pair}>
+                  <li
+                    key={item.pair}
+                    className={item.edgeId === (lockedAssocEdgeId || hoveredAssocEdgeId) ? 'assoc-active' : ''}
+                    onMouseEnter={() => setHoveredAssocEdgeId(item.edgeId)}
+                    onMouseLeave={() => setHoveredAssocEdgeId('')}
+                    onClick={() => setLockedAssocEdgeId(item.edgeId)}
+                  >
                     <p><strong>{item.pair}</strong></p>
                     <p className="sub">{item.story}</p>
                   </li>
@@ -544,7 +582,13 @@ const RightPanel = memo(function RightPanel({
             <>
               <ul className="impact-list">
                 {details.directPairs.map((item) => (
-                  <li key={item.pair}>
+                  <li
+                    key={item.pair}
+                    className={item.edgeId === (lockedAssocEdgeId || hoveredAssocEdgeId) ? 'assoc-active' : ''}
+                    onMouseEnter={() => setHoveredAssocEdgeId(item.edgeId)}
+                    onMouseLeave={() => setHoveredAssocEdgeId('')}
+                    onClick={() => setLockedAssocEdgeId(item.edgeId)}
+                  >
                     <p><strong>{item.pair}</strong></p>
                     <p className="sub">{item.story}</p>
                   </li>
@@ -603,25 +647,24 @@ const GraphCanvas = memo(function GraphCanvas({
   selectedEdgeId,
   highlightedNodeIds,
   highlightedEdgeIds,
+  associationEdgeId,
   onNodeClick,
   onEdgeClick,
   onNodeDoubleClick,
   onBackgroundClick,
+  setHoveredAssocEdgeId,
   setTooltip,
   commentsByTarget,
-  zoom,
-  pan,
-  animateCamera,
+  graphLayerRef,
   onPointerDown,
   onWheel,
   aggregatedLabelCache,
   storyEdgeIds,
 }) {
   const showAggregate = !selectedNodeId
-  const verbFont = Math.max(8, 12 / Math.max(zoom, 0.7))
-  const markerScale = Math.max(0.8, Math.min(2.4, 1 / Math.max(zoom, 0.45)))
-  const markerWidth = 10 * markerScale
-  const markerHeight = 8 * markerScale
+  const verbFont = 11
+  const arrowLength = 13
+  const arrowHalfWidth = 5.5
   const renderedEdges = useMemo(
     () =>
       linksToRender.map((edge) => {
@@ -683,34 +726,20 @@ const GraphCanvas = memo(function GraphCanvas({
         onWheel={onWheel}
         onClick={onBackgroundClick}
       >
-        <defs>
-          {Object.entries(edgeStyle).map(([key, value]) => (
-            <marker
-              id={value.marker}
-              key={key}
-              viewBox="0 0 10 8"
-              markerWidth={markerWidth}
-              markerHeight={markerHeight}
-              refX="9"
-              refY="4"
-              orient="auto"
-              markerUnits="userSpaceOnUse"
-            >
-              <path d="M0,0 L10,4 L0,8 Z" fill={value.color} />
-            </marker>
-          ))}
-        </defs>
-
-        <g className={`camera ${animateCamera ? 'animate' : ''}`} transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+        <g className="camera" ref={graphLayerRef}>
           {sectionLabels.map((section) => (
             <text className="section-title" key={section.text} x={section.x} y={section.y}>{section.text}</text>
           ))}
 
           {renderedEdges.map(({ edge, geometry, style, active, faded, isSelected, commentPreview }) => {
+            const assocActive = associationEdgeId === edge.id
+            const focusDim = associationEdgeId && !assocActive
             return (
               <g
                 key={edge.id}
                 onPointerEnter={() =>
+                  {
+                    setHoveredAssocEdgeId(edge.id)
                   setTooltip({
                     x: geometry.midX,
                     y: geometry.midY,
@@ -719,19 +748,35 @@ const GraphCanvas = memo(function GraphCanvas({
                       ? `${commentPreview.stakeholderCategory}: ${truncate(commentPreview.noteText, 50)}`
                       : edge.note,
                   })
+                  }
                 }
-                onPointerLeave={() => setTooltip(null)}
+                onPointerLeave={() => {
+                  setHoveredAssocEdgeId('')
+                  setTooltip(null)
+                }}
                 onClick={(event) => {
                   event.stopPropagation()
                   onEdgeClick(edge)
                 }}
               >
-              <path
+                <path
                   d={geometry.path}
-                  className={`edge ${active ? 'active' : ''} ${faded ? 'faded' : ''}`}
+                  className={`edge ${active ? 'active' : ''} ${faded ? 'faded' : ''} ${assocActive ? 'assoc-active' : ''} ${focusDim ? 'assoc-dim' : ''}`}
                   stroke={style.color}
-                  markerEnd={`url(#${style.marker})`}
                   strokeDasharray={edge.edgeType === 'feedback' ? '8 4' : undefined}
+                />
+                <polygon
+                  className={`edge-arrowhead ${active ? 'active' : ''} ${faded ? 'faded' : ''} ${assocActive ? 'assoc-active' : ''} ${focusDim ? 'assoc-dim' : ''}`}
+                  fill={style.color}
+                  points={`${geometry.endX},${geometry.endY} ${
+                    geometry.endX - geometry.unitX * arrowLength - geometry.unitY * arrowHalfWidth
+                  },${
+                    geometry.endY - geometry.unitY * arrowLength + geometry.unitX * arrowHalfWidth
+                  } ${
+                    geometry.endX - geometry.unitX * arrowLength + geometry.unitY * arrowHalfWidth
+                  },${
+                    geometry.endY - geometry.unitY * arrowLength - geometry.unitX * arrowHalfWidth
+                  }`}
                 />
                 {edge.edgeType === 'feedback' && (
                   <text className={`loop-icon ${faded ? 'faded' : ''}`} x={geometry.midX + 11} y={geometry.midY + 9}>↻</text>
@@ -793,7 +838,7 @@ const GraphCanvas = memo(function GraphCanvas({
 
           {renderedEdges.map(({ edge, geometry, labelPos, faded, label }) =>
             label ? (
-              <g key={`${edge.id}-label`} className={faded ? 'faded' : ''}>
+              <g key={`${edge.id}-label`} className={`${faded ? 'faded' : ''} ${associationEdgeId === edge.id ? 'assoc-active' : ''} ${associationEdgeId && associationEdgeId !== edge.id ? 'assoc-dim' : ''}`}>
                 <rect
                   className="edge-label-pill"
                   x={labelPos.x - (label.length * verbFont * 0.3 + 8)}
@@ -803,7 +848,7 @@ const GraphCanvas = memo(function GraphCanvas({
                   rx="8"
                 />
                 <text
-                  className={`edge-verb ${faded ? 'faded' : ''}`}
+                  className={`edge-verb ${faded ? 'faded' : ''} ${associationEdgeId === edge.id ? 'assoc-active' : ''}`}
                   x={labelPos.x}
                   y={labelPos.y - 6}
                   style={{ fontSize: `${verbFont}px` }}
@@ -834,11 +879,10 @@ function App() {
   const [storyStep, setStoryStep] = useState(0)
   const [storyPlaying, setStoryPlaying] = useState(false)
 
-  const [zoom, setZoom] = useState(0.78)
-  const [pan, setPan] = useState({ x: 60, y: 30 })
-  const [animateCamera, setAnimateCamera] = useState(true)
   const [tooltipRaw, setTooltipRaw] = useState(null)
   const [tooltip, setTooltip] = useState(null)
+  const [hoveredAssocEdgeId, setHoveredAssocEdgeId] = useState('')
+  const [lockedAssocEdgeId, setLockedAssocEdgeId] = useState('')
   const [manualNavAt, setManualNavAt] = useState(0)
 
   const [comments, setComments] = useState([])
@@ -848,6 +892,11 @@ function App() {
   const [isMobile, setIsMobile] = useState(isSmallScreen())
 
   const dragRef = useRef(null)
+  const wheelAccumRef = useRef(0)
+  const wheelRafRef = useRef(0)
+  const wheelPointerRef = useRef({ sx: BASE_WIDTH / 2, sy: BASE_HEIGHT / 2 })
+  const graphLayerRef = useRef(null)
+  const transformRef = useRef({ x: 60, y: 30, k: 0.78 })
 
   const nodesById = useMemo(() => Object.fromEntries(nodes.map((node) => [node.id, node])), [])
 
@@ -937,6 +986,7 @@ function App() {
     storyEdgeIds.forEach((id) => ids.add(id))
     return ids
   }, [neighborhood.edgeIds, storyEdgeIds])
+  const associationEdgeId = lockedAssocEdgeId || hoveredAssocEdgeId
 
   const selectedNode = selectedNodeId ? nodesById[selectedNodeId] : null
 
@@ -945,6 +995,7 @@ function App() {
     const outgoing = adjacency.bySource[selectedNodeId] || []
     const incoming = adjacency.byTarget[selectedNodeId] || []
     const directPairs = [...outgoing, ...incoming].slice(0, 7).map((edge) => ({
+      edgeId: edge.id,
       pair: `${nodesById[edge.source].label} -> ${nodesById[edge.target].label}`,
       story: truncate(edge.story, 100),
     }))
@@ -970,23 +1021,27 @@ function App() {
 
   const shouldAutoCamera = () => Date.now() - manualNavAt > 2000
 
+  const applyTransform = (next) => {
+    transformRef.current = next
+    if (graphLayerRef.current) {
+      graphLayerRef.current.setAttribute('transform', `translate(${next.x} ${next.y}) scale(${next.k})`)
+    }
+  }
+
   const focusOnNode = (nodeId, zoomTarget = 1.04) => {
     const node = nodesById[nodeId]
     if (!node) return
     if (!shouldAutoCamera()) return
-    setAnimateCamera(true)
-    setZoom(zoomTarget)
-    setPan({
+    applyTransform({
       x: BASE_WIDTH / 2 - node.x * zoomTarget,
       y: BASE_HEIGHT / 2 - node.y * zoomTarget,
+      k: zoomTarget,
     })
   }
 
-  const resetView = () => {
-    if (!shouldAutoCamera()) return
-    setAnimateCamera(true)
-    setZoom(0.78)
-    setPan({ x: 60, y: 30 })
+  const resetView = (force = false) => {
+    if (!force && !shouldAutoCamera()) return
+    applyTransform({ x: 60, y: 30, k: 0.78 })
   }
 
   const refreshComments = async () => {
@@ -997,6 +1052,14 @@ function App() {
   useEffect(() => {
     refreshComments()
   }, [selectedNodeId, selectedEdge])
+
+  useEffect(() => () => {
+    if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current)
+  }, [])
+
+  useEffect(() => {
+    applyTransform(transformRef.current)
+  }, [])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1054,25 +1117,26 @@ function App() {
 
   useEffect(() => {
     if (!panelOpen) {
-      resetView()
+      resetView(true)
       return
     }
     if (!isMobile) {
-      resetView()
+      resetView(true)
     }
   }, [panelOpen, isMobile])
 
   const onPointerDown = (event) => {
     if (event.button !== 0) return
-    setAnimateCamera(false)
     setManualNavAt(Date.now())
-    dragRef.current = { x: event.clientX, y: event.clientY, pan }
+    const start = transformRef.current
+    dragRef.current = { x: event.clientX, y: event.clientY, x0: start.x, y0: start.y }
 
     const move = (moveEvent) => {
       if (!dragRef.current) return
-      setPan({
-        x: dragRef.current.pan.x + (moveEvent.clientX - dragRef.current.x),
-        y: dragRef.current.pan.y + (moveEvent.clientY - dragRef.current.y),
+      applyTransform({
+        x: dragRef.current.x0 + (moveEvent.clientX - dragRef.current.x),
+        y: dragRef.current.y0 + (moveEvent.clientY - dragRef.current.y),
+        k: transformRef.current.k,
       })
     }
 
@@ -1088,10 +1152,36 @@ function App() {
 
   const onWheel = (event) => {
     event.preventDefault()
-    setAnimateCamera(false)
+    if (dragRef.current) return
     setManualNavAt(Date.now())
-    const factor = event.deltaY > 0 ? 0.93 : 1.08
-    setZoom((prev) => Math.max(0.52, Math.min(2.5, prev * factor)))
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    const sx = ((event.clientX - rect.left) / rect.width) * BASE_WIDTH
+    const sy = ((event.clientY - rect.top) / rect.height) * BASE_HEIGHT
+    wheelPointerRef.current = { sx, sy }
+    const deltaMultiplier = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? window.innerHeight : 1
+    const normalizedDelta = Math.max(-120, Math.min(120, event.deltaY * deltaMultiplier))
+    wheelAccumRef.current += normalizedDelta
+
+    if (wheelRafRef.current) return
+    wheelRafRef.current = requestAnimationFrame(() => {
+      wheelRafRef.current = 0
+      const delta = wheelAccumRef.current
+      wheelAccumRef.current = 0
+      if (Math.abs(delta) < 0.01) return
+
+      const current = transformRef.current
+      const pointer = wheelPointerRef.current
+      const { sx: pointerX, sy: pointerY } = pointer
+      const worldX = (pointerX - current.x) / current.k
+      const worldY = (pointerY - current.y) / current.k
+      const nextK = Math.max(0.6, Math.min(2.5, current.k * Math.exp(-delta * 0.001)))
+      applyTransform({
+        x: pointerX - worldX * nextK,
+        y: pointerY - worldY * nextK,
+        k: nextK,
+      })
+    })
   }
 
   const onNodeClick = (nodeId) => {
@@ -1107,6 +1197,8 @@ function App() {
   const clearSelection = () => {
     setSelectedNodeId('')
     setSelectedEdge(null)
+    setHoveredAssocEdgeId('')
+    setLockedAssocEdgeId('')
     setStoryPlaying(false)
     setStoryStep(0)
   }
@@ -1162,16 +1254,16 @@ function App() {
           <div className="hover-banner" aria-live="polite">
             {tooltip ? (
               <>
-                <strong>{tooltip.text}</strong>
-                {tooltip.note && <span className="micro">{tooltip.note}</span>}
+                <strong className="hover-line">{tooltip.text}</strong>
+                {tooltip.note && <span className="micro hover-line">{tooltip.note}</span>}
               </>
             ) : (
-              <span className="micro">Hover a node or edge to see contextual details.</span>
+              <span className="micro hover-line">Hover a node or edge to see contextual details.</span>
             )}
           </div>
 
           <div className="canvas-actions">
-            <button type="button" onClick={resetView}>Reset View</button>
+            <button type="button" onClick={() => resetView(true)}>Reset View</button>
             <button type="button" onClick={() => setPanelOpen((v) => !v)}>{panelOpen ? 'Close Details' : 'See Details'}</button>
           </div>
 
@@ -1186,6 +1278,7 @@ function App() {
             onNodeClick={onNodeClick}
             onEdgeClick={(edge) => {
               setSelectedEdge(edge)
+              setLockedAssocEdgeId(edge.id)
               setPanelOpen(true)
               if (onboardingVisible) {
                 setOnboardingVisible(false)
@@ -1193,16 +1286,15 @@ function App() {
               }
             }}
             onNodeDoubleClick={(nodeId) => {
-              setAnimateCamera(true)
               setManualNavAt(0)
               focusOnNode(nodeId, 1.18)
             }}
             onBackgroundClick={clearSelection}
+            associationEdgeId={associationEdgeId}
+            setHoveredAssocEdgeId={setHoveredAssocEdgeId}
             setTooltip={setTooltipRaw}
             commentsByTarget={commentsByTarget}
-            zoom={zoom}
-            pan={pan}
-            animateCamera={animateCamera}
+            graphLayerRef={graphLayerRef}
             onPointerDown={onPointerDown}
             onWheel={onWheel}
             aggregatedLabelCache={aggregatedLabelCache}
@@ -1246,8 +1338,14 @@ function App() {
           onReset={() => {
             setStoryPlaying(false)
             setStoryStep(0)
-            resetView()
+            setHoveredAssocEdgeId('')
+            setLockedAssocEdgeId('')
+            resetView(true)
           }}
+          hoveredAssocEdgeId={hoveredAssocEdgeId}
+          lockedAssocEdgeId={lockedAssocEdgeId}
+          setHoveredAssocEdgeId={setHoveredAssocEdgeId}
+          setLockedAssocEdgeId={setLockedAssocEdgeId}
           comments={comments}
           userIdentifier={userIdentifier}
           setUserIdentifier={setUserIdentifier}
