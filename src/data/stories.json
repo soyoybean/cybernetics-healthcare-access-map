@@ -1,0 +1,46 @@
+[
+  {
+    "title": "Prior Authorization Spiral",
+    "personaSummary": "Approval workflows delay care and shift burden to families.",
+    "startNode": "person_disability",
+    "pathNodes": [
+      "person_disability",
+      "caregivers",
+      "economic_barrier",
+      "insurers",
+      "policy_barrier",
+      "person_disability"
+    ],
+    "narrationSteps": [
+      "Care starts with unmet needs and tight timelines.",
+      "Caregivers absorb urgent coordination work.",
+      "Costs rise and financial pressure increases.",
+      "Insurer approval rules slow access.",
+      "Policy steps add more delay and paperwork.",
+      "Delays return as higher burden on the person."
+    ]
+  },
+  {
+    "title": "Community Trust Repair",
+    "personaSummary": "Community support lowers barriers and improves service fit.",
+    "startNode": "caregivers",
+    "pathNodes": [
+      "caregivers",
+      "community_orgs",
+      "social_barrier",
+      "person_disability",
+      "researchers",
+      "designers",
+      "digital_services"
+    ],
+    "narrationSteps": [
+      "Caregivers seek trusted support outside clinics.",
+      "Community groups provide practical navigation.",
+      "Trust grows and social barriers drop.",
+      "Lower barriers reduce burden for the person.",
+      "Lived experience informs research priorities.",
+      "Design decisions improve service accessibility.",
+      "Services become easier to use and trust."
+    ]
+  }
+]

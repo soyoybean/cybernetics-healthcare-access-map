@@ -1,556 +1,1201 @@
-import { useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import storiesData from './data/stories.json'
+import {
+  createComment,
+  deleteComment,
+  fetchComments,
+  updateComment,
+} from './commentsApi'
 
-const NODE_WIDTH = 186
-const NODE_HEIGHT = 54
+const BASE_WIDTH = 1700
+const BASE_HEIGHT = 1220
+const SCALE_FACTOR = 1.35
+const NODE_WIDTH = 210
+const NODE_HEIGHT = 62
 
-const nodes = [
-  {
-    id: 'investors',
-    label: 'Investors',
-    group: 'companies',
-    x: 1110,
-    y: 74,
-    description: 'Allocate capital and influence company risk appetite.',
-  },
-  {
-    id: 'business_exec',
-    label: 'Business Executives',
-    group: 'companies',
-    x: 780,
-    y: 84,
-    description: 'Set strategy, budget, and launch priorities.',
-  },
-  {
-    id: 'product_mgr',
-    label: 'Product Managers',
-    group: 'companies',
-    x: 780,
-    y: 152,
-    description: 'Define scope, success metrics, and release plans.',
-  },
-  {
-    id: 'engineers',
-    label: 'Engineers',
-    group: 'companies',
-    x: 780,
-    y: 220,
-    description: 'Implement technical systems and constraints.',
-  },
-  {
-    id: 'designers',
-    label: 'Designers',
-    group: 'companies',
-    x: 780,
-    y: 288,
-    description: 'Shape UX patterns, accessibility, and communication.',
-  },
-  {
-    id: 'researchers',
-    label: 'Researchers',
-    group: 'companies',
-    x: 780,
-    y: 356,
-    description: 'Collect user evidence and uncover unmet needs.',
-  },
-  {
-    id: 'physical_products',
-    label: 'Physical Products',
-    group: 'products',
-    x: 184,
-    y: 248,
-    description: 'Devices, equipment, packaging, and physical touchpoints.',
-  },
-  {
-    id: 'digital_services',
-    label: 'Services & Digital Products',
-    group: 'products',
-    x: 384,
-    y: 248,
-    description: 'Portals, telehealth, apps, scheduling, and care workflows.',
-  },
-  {
-    id: 'clinicians',
-    label: 'Clinicians',
-    group: 'authorizers',
-    x: 700,
-    y: 492,
-    description: 'Gatekeep care decisions and influence treatment pathways.',
-  },
-  {
-    id: 'insurers',
-    label: 'Insurers',
-    group: 'authorizers',
-    x: 900,
-    y: 492,
-    description: 'Control reimbursement, coverage, and utilization rules.',
-  },
-  {
-    id: 'regulators',
-    label: 'Regulators',
-    group: 'authorizers',
-    x: 1100,
-    y: 492,
-    description: 'Set legal standards for safety, privacy, and equity.',
-  },
-  {
-    id: 'physical_barrier',
-    label: 'Physical Barrier',
-    group: 'barriers',
-    x: 176,
-    y: 692,
-    description: 'Mobility, distance, infrastructure, and environmental obstacles.',
-  },
-  {
-    id: 'information_barrier',
-    label: 'Information Barrier',
-    group: 'barriers',
-    x: 364,
-    y: 692,
-    description: 'Low health literacy, inaccessible content, and hidden options.',
-  },
-  {
-    id: 'attitudinal_barrier',
-    label: 'Attitudinal Barrier',
-    group: 'barriers',
-    x: 552,
-    y: 692,
-    description: 'Bias, stigma, and harmful assumptions in interactions.',
-  },
-  {
-    id: 'policy_barrier',
-    label: 'Policy Barrier',
-    group: 'barriers',
-    x: 740,
-    y: 692,
-    description: 'Rules, eligibility constraints, and procedural friction.',
-  },
-  {
-    id: 'social_barrier',
-    label: 'Social Barrier',
-    group: 'barriers',
-    x: 928,
-    y: 692,
-    description: 'Isolation, mistrust, language mismatch, and weak support.',
-  },
-  {
-    id: 'economic_barrier',
-    label: 'Economic Barrier',
-    group: 'barriers',
-    x: 1116,
-    y: 692,
-    description: 'Unaffordable costs, unstable income, and benefit cliffs.',
-  },
-  {
-    id: 'community_orgs',
-    label: 'Community Orgs',
-    group: 'outcomes',
-    x: 456,
-    y: 838,
-    description: 'Bridge institutions and residents through trusted support.',
-  },
-  {
-    id: 'person_disability',
-    label: 'Person w/ Disability',
-    group: 'outcomes',
-    x: 706,
-    y: 838,
-    description: 'Carries the cumulative burden of compounded barriers.',
-  },
-  {
-    id: 'caregivers',
-    label: 'Caregivers',
-    group: 'outcomes',
-    x: 894,
-    y: 838,
-    description: 'Absorb coordination, time, emotional, and financial strain.',
-  },
-  {
-    id: 'employers',
-    label: 'Employers',
-    group: 'outcomes',
-    x: 1082,
-    y: 838,
-    description: 'Shape schedule flexibility, leave, and workplace accommodations.',
-  },
+const groupMeta = {
+  companies: { label: 'Companies', fill: '#fef5d6', stroke: '#b88d16' },
+  products: { label: 'Products & Services', fill: '#dff2ff', stroke: '#2f79a9' },
+  authorizers: { label: 'Authorizers', fill: '#f8e9f2', stroke: '#a54d81' },
+  barriers: { label: 'Barriers', fill: '#fde3df', stroke: '#bf4f43' },
+  outcomes: { label: 'People & Supports', fill: '#e8f8e0', stroke: '#5e9f4f' },
+}
+
+const edgeStyle = {
+  'burden+': { color: '#0072B2', marker: 'arrow-bplus', label: 'burden+ (increases burden)' },
+  'burden-': { color: '#E69F00', marker: 'arrow-bminus', label: 'burden- (reduces burden)' },
+  operational: { color: '#7F7F7F', marker: 'arrow-op', label: 'operational (neutral link)' },
+  feedback: { color: '#7F7F7F', marker: 'arrow-fb', label: 'feedback loop' },
+}
+
+const baseNodes = [
+  { id: 'investors', label: 'Investors', group: 'companies', x: 1110, y: 78, summary: 'Influence funding horizons and risk expectations.' },
+  { id: 'business_exec', label: 'Business Executives', group: 'companies', x: 780, y: 94, summary: 'Set strategic priorities and budget boundaries.' },
+  { id: 'product_mgr', label: 'Product Managers', group: 'companies', x: 780, y: 170, summary: 'Translate strategy into roadmap scope decisions.' },
+  { id: 'engineers', label: 'Engineers', group: 'companies', x: 780, y: 246, summary: 'Implement system logic that shapes access.' },
+  { id: 'designers', label: 'Designers', group: 'companies', x: 780, y: 322, summary: 'Define interaction friction and accessibility patterns.' },
+  { id: 'researchers', label: 'Researchers', group: 'companies', x: 780, y: 398, summary: 'Surface evidence from lived experience.' },
+
+  { id: 'physical_products', label: 'Physical Products', group: 'products', x: 210, y: 280, summary: 'Devices and physical touchpoints can enable or obstruct access.' },
+  { id: 'digital_services', label: 'Services & Digital Products', group: 'products', x: 456, y: 280, summary: 'Digital pathways shape navigation and eligibility experience.' },
+
+  { id: 'clinicians', label: 'Clinicians', group: 'authorizers', x: 700, y: 560, summary: 'Gatekeeping and referral behavior affect care flow.' },
+  { id: 'insurers', label: 'Insurers', group: 'authorizers', x: 948, y: 560, summary: 'Coverage and authorization rules mediate access.' },
+  { id: 'regulators', label: 'Regulators', group: 'authorizers', x: 1190, y: 560, summary: 'Regulatory design influences policy complexity.' },
+
+  { id: 'physical_barrier', label: 'Physical Barrier', group: 'barriers', x: 170, y: 820, summary: 'Mobility and infrastructure mismatch.' },
+  { id: 'information_barrier', label: 'Information Barrier', group: 'barriers', x: 418, y: 820, summary: 'Navigation complexity and hidden options.' },
+  { id: 'attitudinal_barrier', label: 'Attitudinal Barrier', group: 'barriers', x: 662, y: 820, summary: 'Bias and stigma in care interactions.' },
+  { id: 'policy_barrier', label: 'Policy Barrier', group: 'barriers', x: 906, y: 820, summary: 'Administrative and procedural friction.' },
+  { id: 'social_barrier', label: 'Social Barrier', group: 'barriers', x: 1150, y: 820, summary: 'Trust and social support mismatch.' },
+  { id: 'economic_barrier', label: 'Economic Barrier', group: 'barriers', x: 1390, y: 820, summary: 'Cost pressure and income instability.' },
+
+  { id: 'community_orgs', label: 'Community Orgs', group: 'outcomes', x: 520, y: 1042, summary: 'Trusted bridge for navigation and support.' },
+  { id: 'person_disability', label: 'Person w/ Disability', group: 'outcomes', x: 844, y: 1042, summary: 'Receives compounded effects from system barriers.' },
+  { id: 'caregivers', label: 'Caregivers', group: 'outcomes', x: 1090, y: 1042, summary: 'Carry hidden labor from system friction.' },
+  { id: 'employers', label: 'Employers', group: 'outcomes', x: 1360, y: 1042, summary: 'Workplace flexibility influences stability.' },
 ]
 
-const links = [
-  { source: 'investors', target: 'business_exec', relation: 'fund', text: 'fund long-horizon strategy at', polarity: 'neutral', strength: 3 },
-  { source: 'business_exec', target: 'product_mgr', relation: 'prioritize', text: 'set delivery and revenue pressure for', polarity: 'neutral', strength: 3 },
-  { source: 'product_mgr', target: 'engineers', relation: 'scope', text: 'translate business goals into scope for', polarity: 'neutral', strength: 2 },
-  { source: 'product_mgr', target: 'designers', relation: 'brief', text: 'define target journeys and tradeoffs for', polarity: 'neutral', strength: 2 },
-  { source: 'researchers', target: 'product_mgr', relation: 'insight', text: 'surface unmet access needs to', polarity: 'improves', strength: 2 },
-  { source: 'engineers', target: 'digital_services', relation: 'create', text: 'build platform rules and interfaces for', polarity: 'neutral', strength: 3 },
-  { source: 'designers', target: 'digital_services', relation: 'create', text: 'shape interaction patterns used in', polarity: 'neutral', strength: 3 },
-  { source: 'business_exec', target: 'physical_products', relation: 'approve', text: 'approve manufacturing and rollout of', polarity: 'neutral', strength: 2 },
-  { source: 'product_mgr', target: 'physical_products', relation: 'roadmap', text: 'prioritize feature roadmaps in', polarity: 'neutral', strength: 2 },
-  { source: 'clinicians', target: 'digital_services', relation: 'adopt', text: 'drive adoption patterns for', polarity: 'neutral', strength: 2 },
-  { source: 'insurers', target: 'digital_services', relation: 'approve', text: 'approve reimbursement conditions around', polarity: 'neutral', strength: 3 },
-  { source: 'regulators', target: 'digital_services', relation: 'enforce', text: 'enforce compliance constraints on', polarity: 'neutral', strength: 3 },
-  { source: 'regulators', target: 'physical_products', relation: 'enforce', text: 'regulate quality and safety requirements for', polarity: 'neutral', strength: 2 },
+const nodes = baseNodes.map((node) => ({
+  ...node,
+  x: Math.round(node.x * SCALE_FACTOR),
+  y: Math.round(node.y * SCALE_FACTOR),
+}))
 
-  { source: 'physical_products', target: 'physical_barrier', relation: 'cause', text: 'can increase environmental mismatch, raising', polarity: 'worsens', strength: 3 },
-  { source: 'physical_products', target: 'economic_barrier', relation: 'cause', text: 'can add device and maintenance costs, increasing', polarity: 'worsens', strength: 2 },
-  { source: 'digital_services', target: 'information_barrier', relation: 'cause', text: 'can be hard to navigate, worsening', polarity: 'worsens', strength: 3 },
-  { source: 'digital_services', target: 'policy_barrier', relation: 'cause', text: 'can encode rigid rules, amplifying', polarity: 'worsens', strength: 2 },
-  { source: 'digital_services', target: 'social_barrier', relation: 'cause', text: 'can reduce trust when culturally misaligned, worsening', polarity: 'worsens', strength: 2 },
+const rawLinks = [
+  { source: 'investors', target: 'business_exec', verb: 'funds', edgeType: 'operational', note: 'Capital pressure shapes delivery horizon.', strength: 3, story: 'Capital expectations influence strategic priorities.' },
+  { source: 'business_exec', target: 'product_mgr', verb: 'prioritizes', edgeType: 'operational', note: 'Executive KPIs set scope pressure.', strength: 3, story: 'Executive priorities constrain roadmap choices.' },
+  { source: 'product_mgr', target: 'engineers', verb: 'scopes', edgeType: 'operational', note: 'Scope choices determine implementation tradeoffs.', strength: 2, story: 'Roadmap scope directs technical implementation.' },
+  { source: 'product_mgr', target: 'designers', verb: 'briefs', edgeType: 'operational', note: 'Journey framing shapes UX quality.', strength: 2, story: 'Product briefing determines experience priorities.' },
+  { source: 'researchers', target: 'product_mgr', verb: 'informs', edgeType: 'burden-', note: 'Evidence can reduce blind spots.', strength: 2, story: 'Research insights can reduce avoidable burden.' },
+  { source: 'engineers', target: 'digital_services', verb: 'implements', edgeType: 'operational', note: 'Technical defaults become user reality.', strength: 3, story: 'Engineering choices become service behavior.' },
+  { source: 'designers', target: 'digital_services', verb: 'designs', edgeType: 'operational', note: 'IA complexity affects usability.', strength: 3, story: 'Design quality shapes navigation burden.' },
+  { source: 'business_exec', target: 'physical_products', verb: 'approves', edgeType: 'operational', note: 'Approval controls rollout quality.', strength: 2, story: 'Approval cycles affect physical access quality.' },
+  { source: 'product_mgr', target: 'physical_products', verb: 'roadmaps', edgeType: 'operational', note: 'Roadmaps influence access timing.', strength: 2, story: 'Roadmap timing changes who receives support first.' },
 
-  { source: 'clinicians', target: 'attitudinal_barrier', relation: 'bias', text: 'can reinforce bias and power imbalance, raising', polarity: 'worsens', strength: 3 },
-  { source: 'clinicians', target: 'policy_barrier', relation: 'gatekeep', text: 'can unintentionally add referral friction, increasing', polarity: 'worsens', strength: 2 },
-  { source: 'insurers', target: 'economic_barrier', relation: 'cost-share', text: 'can shift costs to families, increasing', polarity: 'worsens', strength: 3 },
-  { source: 'insurers', target: 'policy_barrier', relation: 'authorize', text: 'can create prior-authorization complexity, amplifying', polarity: 'worsens', strength: 3 },
-  { source: 'regulators', target: 'policy_barrier', relation: 'complexity', text: 'can introduce fragmented rules that worsen', polarity: 'worsens', strength: 2 },
+  { source: 'clinicians', target: 'digital_services', verb: 'adopts', edgeType: 'operational', note: 'Workflow fit changes clinical usage.', strength: 2, story: 'Clinical adoption determines real-world usage.' },
+  { source: 'insurers', target: 'digital_services', verb: 'authorizes', edgeType: 'operational', note: 'Coverage rules gate service use.', strength: 3, story: 'Authorization policy gates digital pathway access.' },
+  { source: 'regulators', target: 'digital_services', verb: 'regulates', edgeType: 'operational', note: 'Compliance constraints alter designs.', strength: 3, story: 'Regulation shapes permissible service behavior.' },
+  { source: 'regulators', target: 'physical_products', verb: 'regulates', edgeType: 'operational', note: 'Safety standards affect deployment.', strength: 2, story: 'Regulatory standards influence physical rollout.' },
 
-  { source: 'physical_barrier', target: 'person_disability', relation: 'burden', text: 'directly burdens', polarity: 'worsens', strength: 3 },
-  { source: 'information_barrier', target: 'person_disability', relation: 'burden', text: 'directly burdens', polarity: 'worsens', strength: 3 },
-  { source: 'attitudinal_barrier', target: 'person_disability', relation: 'burden', text: 'directly burdens', polarity: 'worsens', strength: 3 },
-  { source: 'policy_barrier', target: 'person_disability', relation: 'burden', text: 'directly burdens', polarity: 'worsens', strength: 3 },
-  { source: 'social_barrier', target: 'person_disability', relation: 'burden', text: 'directly burdens', polarity: 'worsens', strength: 3 },
-  { source: 'economic_barrier', target: 'person_disability', relation: 'burden', text: 'directly burdens', polarity: 'worsens', strength: 3 },
+  { source: 'physical_products', target: 'physical_barrier', verb: 'increases', edgeType: 'burden+', note: 'Poor fit increases mobility friction.', strength: 3, story: 'Physical mismatch increases movement burden.' },
+  { source: 'physical_products', target: 'economic_barrier', verb: 'shifts burden to', edgeType: 'burden+', note: 'Maintenance costs transfer to households.', strength: 2, story: 'Ownership costs raise household financial pressure.' },
+  { source: 'digital_services', target: 'information_barrier', verb: 'increases', edgeType: 'burden+', note: 'Complex flows raise cognitive load.', strength: 3, story: 'Digital complexity increases information burden.' },
+  { source: 'digital_services', target: 'policy_barrier', verb: 'encodes', edgeType: 'burden+', note: 'Rigid forms hard-code eligibility friction.', strength: 2, story: 'Service logic can lock in policy friction.' },
+  { source: 'digital_services', target: 'social_barrier', verb: 'mediates', edgeType: 'burden+', note: 'Cultural mismatch erodes trust.', strength: 2, story: 'Design mismatch can reduce trust and engagement.' },
 
-  { source: 'person_disability', target: 'caregivers', relation: 'shift', text: 'transfers coordination burden to', polarity: 'worsens', strength: 2 },
-  { source: 'economic_barrier', target: 'caregivers', relation: 'strain', text: 'adds out-of-pocket stress for', polarity: 'worsens', strength: 2 },
-  { source: 'caregivers', target: 'employers', relation: 'attendance', text: 'increase schedule volatility experienced by', polarity: 'worsens', strength: 1 },
-  { source: 'employers', target: 'economic_barrier', relation: 'benefits', text: 'can reduce financial pressure through accommodations, easing', polarity: 'improves', strength: 2 },
+  { source: 'clinicians', target: 'attitudinal_barrier', verb: 'can reinforce', edgeType: 'burden+', note: 'Bias can lower care quality.', strength: 3, story: 'Unexamined bias increases attitudinal burden.' },
+  { source: 'clinicians', target: 'policy_barrier', verb: 'gatekeeps', edgeType: 'burden+', note: 'Referrals can delay entry.', strength: 2, story: 'Gatekeeping can delay service entry.' },
+  { source: 'insurers', target: 'economic_barrier', verb: 'increases', edgeType: 'burden+', note: 'Cost-sharing raises out-of-pocket risk.', strength: 3, story: 'Benefit design increases family cost burden.' },
+  { source: 'insurers', target: 'policy_barrier', verb: 'delays', edgeType: 'burden+', note: 'Prior auth slows access.', strength: 3, story: 'Authorization workflows delay care progression.' },
+  { source: 'regulators', target: 'policy_barrier', verb: 'mediates', edgeType: 'burden+', note: 'Fragmented rules add friction.', strength: 2, story: 'Policy complexity amplifies administrative burden.' },
 
-  { source: 'community_orgs', target: 'information_barrier', relation: 'mitigate', text: 'provide navigation support that reduces', polarity: 'improves', strength: 3 },
-  { source: 'community_orgs', target: 'social_barrier', relation: 'mitigate', text: 'build trust and belonging, lowering', polarity: 'improves', strength: 3 },
-  { source: 'community_orgs', target: 'attitudinal_barrier', relation: 'mitigate', text: 'challenge stigma and reduce', polarity: 'improves', strength: 2 },
-  { source: 'person_disability', target: 'community_orgs', relation: 'engage', text: 'shares lived experience with', polarity: 'improves', strength: 2 },
-  { source: 'caregivers', target: 'community_orgs', relation: 'organize', text: 'co-design practical supports with', polarity: 'improves', strength: 2 },
-  { source: 'person_disability', target: 'researchers', relation: 'feedback', text: 'contribute lived evidence to', polarity: 'improves', strength: 2 },
-  { source: 'community_orgs', target: 'regulators', relation: 'advocacy', text: 'apply policy pressure to', polarity: 'improves', strength: 2 },
-  { source: 'researchers', target: 'designers', relation: 'evidence', text: 'provide accessibility evidence to', polarity: 'improves', strength: 2 },
-  { source: 'researchers', target: 'clinicians', relation: 'training', text: 'inform equity-focused practice for', polarity: 'improves', strength: 2 },
-].map((link, index) => ({ ...link, id: `link-${index}` }))
+  { source: 'physical_barrier', target: 'person_disability', verb: 'increases burden for', edgeType: 'burden+', note: 'Mobility mismatch blocks service completion.', strength: 3, story: 'Physical barriers raise daily access burden.' },
+  { source: 'information_barrier', target: 'person_disability', verb: 'increases burden for', edgeType: 'burden+', note: 'Unclear options delay decisions.', strength: 3, story: 'Information gaps increase uncertainty and delay.' },
+  { source: 'attitudinal_barrier', target: 'person_disability', verb: 'increases burden for', edgeType: 'burden+', note: 'Stigma reduces trust and retention.', strength: 3, story: 'Stigma increases emotional and practical burden.' },
+  { source: 'policy_barrier', target: 'person_disability', verb: 'increases burden for', edgeType: 'burden+', note: 'Procedural steps delay treatment.', strength: 3, story: 'Policy friction adds repeat administrative burden.' },
+  { source: 'social_barrier', target: 'person_disability', verb: 'increases burden for', edgeType: 'burden+', note: 'Weak support lowers continuity.', strength: 3, story: 'Social mismatch undermines sustained engagement.' },
+  { source: 'economic_barrier', target: 'person_disability', verb: 'increases burden for', edgeType: 'burden+', note: 'Cost pressure disrupts continuity.', strength: 3, story: 'Economic pressure destabilizes ongoing care.' },
 
-const groupStyles = {
-  companies: { fill: '#fef5d6', stroke: '#cc9f1d' },
-  products: { fill: '#dff2ff', stroke: '#2f79a9' },
-  authorizers: { fill: '#f8e9f2', stroke: '#b65790' },
-  barriers: { fill: '#fde3df', stroke: '#bf4f43' },
-  outcomes: { fill: '#e8f8e0', stroke: '#5e9f4f' },
-}
+  { source: 'person_disability', target: 'caregivers', verb: 'shifts burden to', edgeType: 'burden+', note: 'Unmet needs transfer coordination labor.', strength: 2, story: 'System burden shifts into caregiver labor.' },
+  { source: 'economic_barrier', target: 'caregivers', verb: 'increases strain on', edgeType: 'burden+', note: 'Costs spill into household budgets.', strength: 2, story: 'Financial strain increases caregiver stress.' },
+  { source: 'caregivers', target: 'employers', verb: 'disrupts', edgeType: 'burden+', note: 'Care demands reduce work predictability.', strength: 1, story: 'Care duties disrupt attendance stability.' },
+  { source: 'employers', target: 'economic_barrier', verb: 'reduces', edgeType: 'burden-', note: 'Flexible supports can stabilize income.', strength: 2, story: 'Workplace flexibility can reduce financial burden.' },
+
+  { source: 'community_orgs', target: 'information_barrier', verb: 'reduces', edgeType: 'burden-', note: 'Navigation support clarifies choices.', strength: 3, story: 'Trusted navigation lowers information burden.' },
+  { source: 'community_orgs', target: 'social_barrier', verb: 'reduces', edgeType: 'burden-', note: 'Trust-building improves engagement.', strength: 3, story: 'Community trust reduces social barriers.' },
+  { source: 'community_orgs', target: 'attitudinal_barrier', verb: 'reduces', edgeType: 'burden-', note: 'Advocacy can challenge bias.', strength: 2, story: 'Community advocacy can reduce stigma effects.' },
+  { source: 'person_disability', target: 'community_orgs', verb: 'partners with', edgeType: 'operational', note: 'Lived expertise informs local support.', strength: 2, story: 'Lived experience strengthens community responses.' },
+  { source: 'caregivers', target: 'community_orgs', verb: 'co-designs with', edgeType: 'operational', note: 'Collaboration creates practical support.', strength: 2, story: 'Caregiver organizing improves local support pathways.' },
+  { source: 'person_disability', target: 'researchers', verb: 'informs', edgeType: 'burden-', note: 'Outcome feedback sharpens evidence.', strength: 2, story: 'Lived feedback improves system understanding.' },
+  { source: 'community_orgs', target: 'regulators', verb: 'pressures', edgeType: 'operational', note: 'Advocacy can trigger policy change.', strength: 2, story: 'Community advocacy can influence regulation.' },
+  { source: 'researchers', target: 'designers', verb: 'informs', edgeType: 'burden-', note: 'Evidence improves accessibility choices.', strength: 2, story: 'Evidence-led design reduces avoidable friction.' },
+  { source: 'researchers', target: 'clinicians', verb: 'trains', edgeType: 'burden-', note: 'Equity training can reduce bias.', strength: 2, story: 'Training can reduce attitudinal barriers.' },
+
+  { source: 'policy_barrier', target: 'insurers', verb: 'feeds back to', edgeType: 'feedback', note: 'Complex rules can reinforce stricter control.', strength: 1, story: 'Complex policy can reinforce insurer gatekeeping.' },
+]
+
+const links = rawLinks.map((link, index) => ({ ...link, id: `link-${index}` }))
 
 const sectionLabels = [
-  { text: 'Products & Services', x: 160, y: 172 },
-  { text: 'Companies', x: 760, y: 34 },
-  { text: 'Authorizers', x: 666, y: 442 },
-  { text: 'Access Barriers', x: 126, y: 642 },
-  { text: 'People & Supports', x: 402, y: 786 },
+  { text: 'Products & Services', x: 150 * SCALE_FACTOR, y: 180 * SCALE_FACTOR },
+  { text: 'Companies', x: 760 * SCALE_FACTOR, y: 40 * SCALE_FACTOR },
+  { text: 'Authorizers', x: 640 * SCALE_FACTOR, y: 500 * SCALE_FACTOR },
+  { text: 'Access Barriers', x: 110 * SCALE_FACTOR, y: 760 * SCALE_FACTOR },
+  { text: 'People & Supports', x: 420 * SCALE_FACTOR, y: 980 * SCALE_FACTOR },
 ]
 
-const sentenceFromLink = (link, byId) =>
-  `${byId[link.source].label} ${link.text} ${byId[link.target].label}.`
+const truncate = (text, max) => (text.length <= max ? text : `${text.slice(0, max - 1)}…`)
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const buildNarrative = ({ startId, bySource, byTarget, byId }) => {
-  const forward = []
-  const backward = []
-  const usedForward = new Set()
-  const usedBackward = new Set()
-  const forwardEdgeIds = new Set()
-  const backwardEdgeIds = new Set()
+const sentenceFromLink = (link, byId) => `${byId[link.source].label} -> ${link.verb} -> ${byId[link.target].label}`
 
-  const queue = [{ nodeId: startId, depth: 0 }]
-  while (queue.length && forward.length < 8) {
-    const current = queue.shift()
-    if (current.depth >= 4) {
-      continue
-    }
+const isSmallScreen = () => window.matchMedia('(max-width: 1080px)').matches
 
-    const outgoing = (bySource[current.nodeId] || [])
-      .slice()
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 3)
-
-    outgoing.forEach((link) => {
-      if (usedForward.has(link.id) || forward.length >= 8) {
-        return
-      }
-
-      usedForward.add(link.id)
-      forwardEdgeIds.add(link.id)
-      forward.push(sentenceFromLink(link, byId))
-      queue.push({ nodeId: link.target, depth: current.depth + 1 })
-    })
+const parseStateFromUrl = () => {
+  const params = new URLSearchParams(window.location.search)
+  const selectedNode = params.get('selectedNode') || ''
+  const depth = Number(params.get('depth') || '1')
+  const activeStory = params.get('story') || ''
+  const filters = {
+    companies: params.get('f_companies') !== '0',
+    products: params.get('f_products') !== '0',
+    authorizers: params.get('f_authorizers') !== '0',
+    barriers: params.get('f_barriers') !== '0',
+    outcomes: params.get('f_outcomes') !== '0',
   }
-
-  const backQueue = [{ nodeId: startId, depth: 0 }]
-  while (backQueue.length && backward.length < 6) {
-    const current = backQueue.shift()
-    if (current.depth >= 3) {
-      continue
-    }
-
-    const incoming = (byTarget[current.nodeId] || [])
-      .slice()
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 2)
-
-    incoming.forEach((link) => {
-      if (usedBackward.has(link.id) || backward.length >= 6) {
-        return
-      }
-
-      usedBackward.add(link.id)
-      backwardEdgeIds.add(link.id)
-      backward.push(sentenceFromLink(link, byId))
-      backQueue.push({ nodeId: link.source, depth: current.depth + 1 })
-    })
-  }
-
-  return { forward, backward, forwardEdgeIds, backwardEdgeIds }
+  return { selectedNode, depth: [1, 2, 3].includes(depth) ? depth : 1, activeStory, filters }
 }
 
-const getEdgeColor = (polarity) => {
-  if (polarity === 'worsens') {
-    return '#cf3d3d'
-  }
-  if (polarity === 'improves') {
-    return '#2f8f59'
-  }
-  return '#6f6f6f'
-}
-
-const buildCurve = (sourceNode, targetNode) => {
-  const dx = targetNode.x - sourceNode.x
-  const dy = targetNode.y - sourceNode.y
+const buildCurve = (source, target) => {
+  const dx = target.x - source.x
+  const dy = target.y - source.y
   const distance = Math.hypot(dx, dy)
   const unitX = distance === 0 ? 0 : dx / distance
   const unitY = distance === 0 ? 0 : dy / distance
-
-  const startX = sourceNode.x + unitX * 35
-  const startY = sourceNode.y + unitY * 24
-  const endX = targetNode.x - unitX * 35
-  const endY = targetNode.y - unitY * 24
-
-  const curve = Math.max(-140, Math.min(140, dx * 0.08))
+  const startX = source.x + unitX * 36
+  const startY = source.y + unitY * 24
+  const endX = target.x - unitX * 36
+  const endY = target.y - unitY * 24
+  const curve = Math.max(-180, Math.min(180, dx * 0.09))
   const controlY = (startY + endY) / 2 + curve
 
-  return `M ${startX} ${startY} C ${startX} ${controlY}, ${endX} ${controlY}, ${endX} ${endY}`
+  return {
+    path: `M ${startX} ${startY} C ${startX} ${controlY}, ${endX} ${controlY}, ${endX} ${endY}`,
+    midX: (startX + endX) / 2,
+    midY: (startY + endY) / 2,
+  }
 }
 
-function App() {
-  const [selectedNodeId, setSelectedNodeId] = useState('person_disability')
+const getNeighborhood = ({ startId, depth, bySource, byTarget }) => {
+  if (!startId) return { nodeIds: new Set(), edgeIds: new Set() }
+  const nodeIds = new Set([startId])
+  const edgeIds = new Set()
+  const queue = [{ nodeId: startId, hop: 0 }]
 
-  const nodesById = useMemo(
-    () => Object.fromEntries(nodes.map((node) => [node.id, node])),
-    [],
-  )
+  while (queue.length) {
+    const current = queue.shift()
+    if (current.hop >= depth) continue
+    const neighbors = [...(bySource[current.nodeId] || []), ...(byTarget[current.nodeId] || [])]
 
-  const { bySource, byTarget } = useMemo(() => {
-    const sourceMap = {}
-    const targetMap = {}
-
-    links.forEach((link) => {
-      if (!sourceMap[link.source]) {
-        sourceMap[link.source] = []
+    neighbors.forEach((edge) => {
+      edgeIds.add(edge.id)
+      const node = edge.source === current.nodeId ? edge.target : edge.source
+      if (!nodeIds.has(node)) {
+        nodeIds.add(node)
+        queue.push({ nodeId: node, hop: current.hop + 1 })
       }
-      if (!targetMap[link.target]) {
-        targetMap[link.target] = []
-      }
-      sourceMap[link.source].push(link)
-      targetMap[link.target].push(link)
     })
+  }
 
-    return { bySource: sourceMap, byTarget: targetMap }
-  }, [])
+  return { nodeIds, edgeIds }
+}
 
-  const selectedNode = nodesById[selectedNodeId]
-
-  const narrative = useMemo(
-    () => buildNarrative({ startId: selectedNodeId, bySource, byTarget, byId: nodesById }),
-    [selectedNodeId, bySource, byTarget, nodesById],
+const SettingsDrawer = memo(function SettingsDrawer({ open, filters, onToggleFilter, onClose }) {
+  return (
+    <aside className={`settings-drawer ${open ? 'open' : ''}`}>
+      <div className="drawer-header">
+        <h3>Settings</h3>
+        <button type="button" onClick={onClose}>X</button>
+      </div>
+      <p className="micro">Category Filters</p>
+      {Object.entries(groupMeta).map(([key, value]) => (
+        <label key={key} className="drawer-item">
+          <input type="checkbox" checked={filters[key]} onChange={() => onToggleFilter(key)} />
+          {value.label}
+        </label>
+      ))}
+    </aside>
   )
+})
 
-  const directConnections = useMemo(
+const ExploreStories = memo(function ExploreStories({
+  storyMode,
+  activeStory,
+  setStoryTitle,
+  play,
+  next,
+  back,
+  reset,
+  step,
+  sentence,
+}) {
+  return (
+    <section className="story-mode">
+      <h3>Explore Stories</h3>
+      <p className="micro">Guided walkthroughs showing how system burdens propagate across stakeholders.</p>
+
+      {!storyMode && <p className="micro">Select a story card to begin guided exploration.</p>}
+      <div className="story-card-grid">
+        {storiesData.map((story) => (
+          <button
+            key={story.title}
+            type="button"
+            className={`story-card ${activeStory?.title === story.title ? 'active' : ''}`}
+            onClick={() => setStoryTitle(story.title)}
+          >
+            <strong>{story.title}</strong>
+            <span>{truncate(story.personaSummary, 120)}</span>
+          </button>
+        ))}
+      </div>
+
+      {activeStory && (
+        <div className="story-player">
+          <p className="story-situation">Situation {step + 1}: {truncate(sentence, 80)}</p>
+          <div className="story-actions">
+            <button type="button" onClick={play}>Play</button>
+            <button type="button" onClick={next}>Next</button>
+            <button type="button" onClick={back}>Back</button>
+            <button type="button" onClick={reset}>Reset</button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+})
+
+const CommentsPanel = memo(function CommentsPanel({ selectedTarget, comments, userIdentifier, setUserIdentifier, refresh }) {
+  const [expanded, setExpanded] = useState(false)
+  const [displayName, setDisplayName] = useState('')
+  const [category, setCategory] = useState('Companies')
+  const [otherCategory, setOtherCategory] = useState('')
+  const [noteText, setNoteText] = useState('')
+  const [contactInfo, setContactInfo] = useState('')
+  const [replyTo, setReplyTo] = useState('')
+
+  const targetComments = useMemo(
     () =>
-      links.filter(
-        (link) => link.source === selectedNodeId || link.target === selectedNodeId,
+      comments.filter(
+        (comment) => comment.targetType === selectedTarget.type && comment.targetId === selectedTarget.id,
       ),
-    [selectedNodeId],
+    [comments, selectedTarget],
   )
 
-  const highlightedEdgeIds = useMemo(() => {
+  const topLevel = useMemo(
+    () => targetComments.filter((comment) => !comment.parentId),
+    [targetComments],
+  )
+  const byParent = useMemo(() => {
+    const map = {}
+    targetComments
+      .filter((comment) => comment.parentId)
+      .forEach((comment) => {
+        if (!map[comment.parentId]) map[comment.parentId] = []
+        map[comment.parentId].push(comment)
+      })
+    return map
+  }, [targetComments])
+
+  const submit = async (event) => {
+    event.preventDefault()
+    if (!userIdentifier.trim()) return
+    await createComment({
+      targetType: selectedTarget.type,
+      targetId: selectedTarget.id,
+      stakeholderCategory: category === 'Other' ? otherCategory || 'Other' : category,
+      noteText,
+      contactInfo,
+      privateUserIdentifier: userIdentifier,
+      displayName,
+      parentId: replyTo,
+    })
+    setNoteText('')
+    setReplyTo('')
+    await refresh()
+  }
+
+  const editComment = async (comment) => {
+    const next = prompt('Edit comment', comment.noteText)
+    if (!next || !next.trim()) return
+    try {
+      await updateComment({ id: comment.id, noteText: next.trim(), privateUserIdentifier: userIdentifier })
+      await refresh()
+    } catch {
+      alert('Only the original author can edit this comment.')
+    }
+  }
+
+  const removeComment = async (comment) => {
+    try {
+      await deleteComment({ id: comment.id, privateUserIdentifier: userIdentifier })
+      await refresh()
+    } catch {
+      alert('Only the original author can delete this comment.')
+    }
+  }
+
+  return (
+    <section className="comments-panel">
+      <div className="panel-subhead sticky">
+        <h4>Comments</h4>
+        <button type="button" onClick={() => setExpanded((v) => !v)}>{expanded ? 'Collapse' : 'Expand'}</button>
+      </div>
+
+      {expanded && (
+        <>
+          <p className="micro">Target: {selectedTarget.type} / {selectedTarget.id}</p>
+          <form className="comment-form" onSubmit={submit}>
+            <label>
+              Private Identifier (required)
+              <input
+                required
+                value={userIdentifier}
+                onChange={(event) => setUserIdentifier(event.target.value)}
+                placeholder="email or private identifier"
+              />
+            </label>
+            <label>
+              Display Name (optional)
+              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="shown publicly" />
+            </label>
+            <label>
+              Who are you?
+              <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                <option>Companies</option>
+                <option>Authorizers</option>
+                <option>Products & Services</option>
+                <option>Barriers</option>
+                <option>People & Supports</option>
+                <option>Other</option>
+              </select>
+            </label>
+            {category === 'Other' && (
+              <label>
+                Other Category
+                <input value={otherCategory} onChange={(event) => setOtherCategory(event.target.value)} />
+              </label>
+            )}
+            <label>
+              Contact Info (optional)
+              <input value={contactInfo} onChange={(event) => setContactInfo(event.target.value)} />
+            </label>
+            <label>
+              Note
+              <textarea rows={3} required value={noteText} onChange={(event) => setNoteText(event.target.value)} />
+            </label>
+            {replyTo && <p className="micro">Replying to {replyTo}</p>}
+            <button type="submit">Submit Comment</button>
+          </form>
+
+          <div className="comment-list">
+            {topLevel.map((comment) => (
+              <article key={comment.id} className="comment-item">
+                <header>
+                  <strong>{comment.displayName || 'User Comment'}</strong>
+                  <span>{new Date(comment.timestamp).toLocaleString()}</span>
+                </header>
+                <p className="micro">{comment.stakeholderCategory}</p>
+                <p>{comment.noteText}</p>
+                <div className="comment-actions">
+                  <button type="button" onClick={() => setReplyTo(comment.id)}>Reply</button>
+                  <button type="button" onClick={() => editComment(comment)}>
+                    Edit
+                  </button>
+                  <button type="button" onClick={() => removeComment(comment)}>
+                    Delete
+                  </button>
+                </div>
+                {(byParent[comment.id] || []).map((reply) => (
+                  <div key={reply.id} className="reply-item">
+                    <strong>{reply.displayName || 'User Comment'}</strong>
+                    <p>{reply.noteText}</p>
+                  </div>
+                ))}
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+})
+
+const RightPanel = memo(function RightPanel({
+  open,
+  onClose,
+  selectedNode,
+  selectedNodeId,
+  selectedEdge,
+  details,
+  storyMode,
+  setStoryMode,
+  activeStory,
+  setStoryTitle,
+  storyStep,
+  storySentence,
+  onPlay,
+  onNext,
+  onBack,
+  onReset,
+  comments,
+  userIdentifier,
+  setUserIdentifier,
+  refreshComments,
+}) {
+  const [tab, setTab] = useState('Overview')
+  const [showMore, setShowMore] = useState(false)
+
+  useEffect(() => {
+    setShowMore(false)
+  }, [selectedNodeId, tab, storyStep])
+
+  const selectedTarget = selectedEdge
+    ? { type: 'edge', id: selectedEdge.id }
+    : { type: 'node', id: selectedNodeId || '' }
+
+  return (
+    <aside className={`right-panel ${open ? 'open' : ''}`}>
+      <div className="right-panel-header sticky">
+        <div>
+          <h2>Details</h2>
+          <p className="micro">Use tabs for quick overview or deeper analysis.</p>
+        </div>
+        <button type="button" onClick={onClose}>X</button>
+      </div>
+
+      <div className="tab-row sticky">
+        {['Overview', 'Details', 'Evidence'].map((name) => (
+          <button key={name} type="button" className={tab === name ? 'active' : ''} onClick={() => setTab(name)}>
+            {name}
+          </button>
+        ))}
+      </div>
+
+      <button type="button" className="story-toggle" onClick={() => setStoryMode((v) => !v)}>
+        {storyMode ? 'Hide Story Mode' : 'Explore Stories'}
+      </button>
+
+      {storyMode && (
+        <ExploreStories
+          storyMode={storyMode}
+          activeStory={activeStory}
+          setStoryTitle={setStoryTitle}
+          play={onPlay}
+          next={onNext}
+          back={onBack}
+          reset={onReset}
+          step={storyStep}
+          sentence={storySentence}
+        />
+      )}
+
+      {selectedNode && (
+        <section className="structured-card">
+          <h3>{selectedNode.label}</h3>
+          <h4>Involved Stakeholders & Impact Story</h4>
+
+          {tab === 'Overview' && (
+            <>
+              <ul className="impact-list">
+                {details.directPairs.slice(0, 3).map((item) => (
+                  <li key={item.pair}>
+                    <p><strong>{item.pair}</strong></p>
+                    <p className="sub">{item.story}</p>
+                  </li>
+                ))}
+              </ul>
+              <p className="one-line">{details.summary}</p>
+            </>
+          )}
+
+          {tab === 'Details' && (
+            <>
+              <ul className="impact-list">
+                {details.directPairs.map((item) => (
+                  <li key={item.pair}>
+                    <p><strong>{item.pair}</strong></p>
+                    <p className="sub">{item.story}</p>
+                  </li>
+                ))}
+              </ul>
+              <p className="one-line">{details.summary}</p>
+            </>
+          )}
+
+          {tab === 'Evidence' && (
+            <>
+              <p className="one-line">Citations and reference notes can be managed here.</p>
+              <p className="micro">No evidence items added yet.</p>
+            </>
+          )}
+
+          <button type="button" className="link-btn" onClick={() => setShowMore((v) => !v)}>
+            {showMore ? 'Show Less' : 'Show More'}
+          </button>
+
+          {showMore && (
+            <div className="show-more-block">
+              <h4>Chains</h4>
+              <ol>
+                {details.chains.map((line, index) => (
+                  <li key={`${line}-${index}`}>{line}</li>
+                ))}
+              </ol>
+              <h4>Who Shapes This Node</h4>
+              <ol>
+                {details.upstream.map((line, index) => (
+                  <li key={`${line}-${index}`}>{line}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </section>
+      )}
+
+      <CommentsPanel
+        selectedTarget={selectedTarget}
+        comments={comments}
+        userIdentifier={userIdentifier}
+        setUserIdentifier={setUserIdentifier}
+        refresh={refreshComments}
+      />
+    </aside>
+  )
+})
+
+const GraphCanvas = memo(function GraphCanvas({
+  nodesToRender,
+  linksToRender,
+  nodesById,
+  selectedNodeId,
+  selectedEdgeId,
+  highlightedNodeIds,
+  highlightedEdgeIds,
+  onNodeClick,
+  onEdgeClick,
+  onNodeDoubleClick,
+  setTooltip,
+  commentsByTarget,
+  zoom,
+  pan,
+  animateCamera,
+  onPointerDown,
+  onWheel,
+  aggregatedLabelCache,
+  storyEdgeIds,
+}) {
+  const showAggregate = !selectedNodeId
+  const verbFont = Math.max(8, 12 / Math.max(zoom, 0.7))
+  const renderedEdges = useMemo(
+    () =>
+      linksToRender.map((edge) => {
+        const source = nodesById[edge.source]
+        const target = nodesById[edge.target]
+        const geometry = buildCurve(source, target)
+        const style = edgeStyle[edge.edgeType]
+        const active = highlightedEdgeIds.has(edge.id) || storyEdgeIds.has(edge.id)
+        const faded = selectedNodeId ? !active : false
+        const isSelected = selectedEdgeId === edge.id
+        const commentPreview = commentsByTarget[edge.id]?.[0]
+
+        let label = ''
+        if (showAggregate) {
+          const key = `${source.group}-${target.group}-${edge.verb}`
+          const aggregate = aggregatedLabelCache[key]
+          if (aggregate?.firstEdgeId === edge.id) {
+            label = aggregate.count > 1 ? `${edge.verb} (${aggregate.count})` : edge.verb
+          }
+        } else if (edge.source === selectedNodeId || edge.target === selectedNodeId) {
+          label = edge.verb
+        }
+
+        return {
+          edge,
+          source,
+          target,
+          geometry,
+          style,
+          active,
+          faded,
+          isSelected,
+          commentPreview,
+          label,
+        }
+      }),
+    [
+      linksToRender,
+      nodesById,
+      highlightedEdgeIds,
+      storyEdgeIds,
+      selectedNodeId,
+      selectedEdgeId,
+      commentsByTarget,
+      showAggregate,
+      aggregatedLabelCache,
+    ],
+  )
+
+  return (
+    <section className="map-canvas">
+      <svg
+        viewBox={`0 0 ${BASE_WIDTH} ${BASE_HEIGHT}`}
+        role="img"
+        aria-label="Healthcare access causal graph"
+        onPointerDown={onPointerDown}
+        onWheel={onWheel}
+      >
+        <defs>
+          {Object.entries(edgeStyle).map(([key, value]) => (
+            <marker
+              id={value.marker}
+              key={key}
+              markerWidth="14"
+              markerHeight="14"
+              refX="9"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0,0 L10,4 L0,8 Z" fill={value.color} />
+            </marker>
+          ))}
+        </defs>
+
+        <g className={`camera ${animateCamera ? 'animate' : ''}`} transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+          {sectionLabels.map((section) => (
+            <text className="section-title" key={section.text} x={section.x} y={section.y}>{section.text}</text>
+          ))}
+
+          {renderedEdges.map(({ edge, geometry, style, active, faded, isSelected, commentPreview }) => {
+            return (
+              <g
+                key={edge.id}
+                onPointerEnter={() =>
+                  setTooltip({
+                    x: geometry.midX,
+                    y: geometry.midY,
+                    text: `${nodesById[edge.source].label} -> ${edge.verb} -> ${nodesById[edge.target].label}`,
+                    note: commentPreview
+                      ? `${commentPreview.stakeholderCategory}: ${truncate(commentPreview.noteText, 50)}`
+                      : edge.note,
+                  })
+                }
+                onPointerLeave={() => setTooltip(null)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onEdgeClick(edge)
+                }}
+              >
+                <path
+                  d={geometry.path}
+                  className={`edge ${active ? 'active' : ''} ${faded ? 'faded' : ''}`}
+                  stroke={style.color}
+                  markerEnd={`url(#${style.marker})`}
+                  strokeDasharray={edge.edgeType === 'feedback' ? '8 4' : undefined}
+                />
+                {edge.edgeType === 'feedback' && (
+                  <text className={`loop-icon ${faded ? 'faded' : ''}`} x={geometry.midX + 11} y={geometry.midY + 9}>↻</text>
+                )}
+                {commentsByTarget[edge.id]?.length > 0 && (
+                  <text className="comment-pin" x={geometry.midX - 11} y={geometry.midY + 12}>💬</text>
+                )}
+                {isSelected && <circle className="selected-dot" cx={geometry.midX} cy={geometry.midY} r="6" />}
+              </g>
+            )
+          })}
+
+          {nodesToRender.map((node) => {
+            const connected = highlightedNodeIds.has(node.id) || (!selectedNodeId && !storyEdgeIds.size)
+            const faded = selectedNodeId ? !connected : false
+            const selected = node.id === selectedNodeId
+            const nodeComments = commentsByTarget[node.id] || []
+            const preview = nodeComments[0]
+
+            return (
+              <g
+                key={node.id}
+                className={`node-group ${selected ? 'selected' : ''}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onNodeClick(node.id)
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation()
+                  onNodeDoubleClick(node.id)
+                }}
+                onPointerEnter={() =>
+                  setTooltip({
+                    x: node.x,
+                    y: node.y - 30,
+                    text: node.label,
+                    note: preview
+                      ? `${preview.stakeholderCategory}: ${truncate(preview.noteText, 50)}`
+                      : node.summary,
+                  })
+                }
+                onPointerLeave={() => setTooltip(null)}
+              >
+                <rect
+                  x={node.x - NODE_WIDTH / 2}
+                  y={node.y - NODE_HEIGHT / 2}
+                  width={NODE_WIDTH}
+                  height={NODE_HEIGHT}
+                  rx="12"
+                  fill={groupMeta[node.group].fill}
+                  stroke={groupMeta[node.group].stroke}
+                  className={`node-rect ${faded ? 'faded' : ''}`}
+                />
+                <text className={`node-label ${faded ? 'faded' : ''}`} x={node.x} y={node.y + 5}>{node.label}</text>
+                {nodeComments.length > 0 && <text className="comment-pin" x={node.x + 82} y={node.y - 14}>💬</text>}
+              </g>
+            )
+          })}
+
+          {renderedEdges.map(({ edge, geometry, faded, label }) =>
+            label ? (
+              <text
+                key={`${edge.id}-label`}
+                className={`edge-verb ${faded ? 'faded' : ''}`}
+                x={geometry.midX}
+                y={geometry.midY - 5}
+                style={{ fontSize: `${verbFont}px` }}
+              >
+                {label}
+              </text>
+            ) : null,
+          )}
+        </g>
+      </svg>
+    </section>
+  )
+})
+
+function App() {
+  const initial = useMemo(() => parseStateFromUrl(), [])
+  const [selectedNodeId, setSelectedNodeId] = useState(initial.selectedNode)
+  const [selectedEdge, setSelectedEdge] = useState(null)
+  const [depth, setDepth] = useState(initial.depth)
+  const [depthOverridden, setDepthOverridden] = useState(false)
+  const [filters, setFilters] = useState(initial.filters)
+
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [storyMode, setStoryMode] = useState(false)
+  const [storyTitle, setStoryTitle] = useState(initial.activeStory)
+  const [storyStep, setStoryStep] = useState(0)
+  const [storyPlaying, setStoryPlaying] = useState(false)
+
+  const [zoom, setZoom] = useState(0.78)
+  const [pan, setPan] = useState({ x: 60, y: 30 })
+  const [animateCamera, setAnimateCamera] = useState(true)
+  const [tooltip, setTooltip] = useState(null)
+  const [manualNavAt, setManualNavAt] = useState(0)
+
+  const [comments, setComments] = useState([])
+  const [userIdentifier, setUserIdentifier] = useState('')
+  const [onboardingVisible, setOnboardingVisible] = useState(false)
+
+  const [isMobile, setIsMobile] = useState(isSmallScreen())
+
+  const dragRef = useRef(null)
+
+  const nodesById = useMemo(() => Object.fromEntries(nodes.map((node) => [node.id, node])), [])
+
+  const visibleNodes = useMemo(() => nodes.filter((node) => filters[node.group]), [filters])
+  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes])
+  const visibleLinks = useMemo(
+    () => links.filter((link) => visibleNodeIds.has(link.source) && visibleNodeIds.has(link.target)),
+    [visibleNodeIds],
+  )
+
+  const adjacency = useMemo(() => {
+    const bySource = {}
+    const byTarget = {}
+    visibleLinks.forEach((edge) => {
+      if (!bySource[edge.source]) bySource[edge.source] = []
+      if (!byTarget[edge.target]) byTarget[edge.target] = []
+      bySource[edge.source].push(edge)
+      byTarget[edge.target].push(edge)
+    })
+    return { bySource, byTarget }
+  }, [visibleLinks])
+
+  const commentsByTarget = useMemo(() => {
+    const map = {}
+    comments.forEach((comment) => {
+      const key = comment.targetType === 'edge' ? comment.targetId : comment.targetId
+      if (!map[key]) map[key] = []
+      map[key].push(comment)
+    })
+    return map
+  }, [comments])
+
+  const aggregatedLabelCache = useMemo(() => {
+    const map = {}
+    visibleLinks.forEach((edge) => {
+      const sourceGroup = nodesById[edge.source].group
+      const targetGroup = nodesById[edge.target].group
+      const key = `${sourceGroup}-${targetGroup}-${edge.verb}`
+      if (!map[key]) map[key] = { count: 0, firstEdgeId: edge.id }
+      map[key].count += 1
+    })
+    return map
+  }, [visibleLinks, nodesById])
+
+  const activeStory = useMemo(
+    () => storiesData.find((story) => story.title === storyTitle) || null,
+    [storyTitle],
+  )
+
+  const storyEdgeIds = useMemo(() => {
+    if (!activeStory) return new Set()
     const ids = new Set()
-    directConnections.forEach((link) => ids.add(link.id))
-    narrative.forwardEdgeIds.forEach((id) => ids.add(id))
-    narrative.backwardEdgeIds.forEach((id) => ids.add(id))
+    for (let i = 0; i < activeStory.pathNodes.length - 1; i += 1) {
+      if (i >= storyStep) break
+      const source = activeStory.pathNodes[i]
+      const target = activeStory.pathNodes[i + 1]
+      const edge = visibleLinks.find((item) => item.source === source && item.target === target)
+      if (edge) ids.add(edge.id)
+    }
     return ids
-  }, [directConnections, narrative.forwardEdgeIds, narrative.backwardEdgeIds])
+  }, [activeStory, storyStep, visibleLinks])
+
+  const neighborhood = useMemo(
+    () =>
+      getNeighborhood({
+        startId: selectedNodeId,
+        depth,
+        bySource: adjacency.bySource,
+        byTarget: adjacency.byTarget,
+      }),
+    [selectedNodeId, depth, adjacency],
+  )
 
   const highlightedNodeIds = useMemo(() => {
-    const ids = new Set([selectedNodeId])
-    links.forEach((link) => {
-      if (highlightedEdgeIds.has(link.id)) {
-        ids.add(link.source)
-        ids.add(link.target)
+    const ids = new Set(neighborhood.nodeIds)
+    if (activeStory) {
+      for (let i = 0; i <= storyStep; i += 1) {
+        const id = activeStory.pathNodes[i]
+        if (id) ids.add(id)
       }
-    })
+    }
     return ids
-  }, [selectedNodeId, highlightedEdgeIds])
+  }, [neighborhood.nodeIds, activeStory, storyStep])
+
+  const highlightedEdgeIds = useMemo(() => {
+    const ids = new Set(neighborhood.edgeIds)
+    storyEdgeIds.forEach((id) => ids.add(id))
+    return ids
+  }, [neighborhood.edgeIds, storyEdgeIds])
+
+  const selectedNode = selectedNodeId ? nodesById[selectedNodeId] : null
+
+  const details = useMemo(() => {
+    if (!selectedNodeId) return { directPairs: [], summary: '', chains: [], upstream: [] }
+    const outgoing = adjacency.bySource[selectedNodeId] || []
+    const incoming = adjacency.byTarget[selectedNodeId] || []
+    const directPairs = [...outgoing, ...incoming].slice(0, 7).map((edge) => ({
+      pair: `${nodesById[edge.source].label} -> ${nodesById[edge.target].label}`,
+      story: truncate(edge.story, 100),
+    }))
+
+    const chainEdges = [...highlightedEdgeIds]
+      .map((id) => visibleLinks.find((item) => item.id === id))
+      .filter(Boolean)
+      .slice(0, 12)
+
+    return {
+      directPairs,
+      summary: truncate(`${nodesById[selectedNodeId].label}: ${nodesById[selectedNodeId].summary}`, 300),
+      chains: chainEdges.map((edge) => sentenceFromLink(edge, nodesById)),
+      upstream: incoming.map((edge) => sentenceFromLink(edge, nodesById)).slice(0, 8),
+    }
+  }, [selectedNodeId, adjacency, nodesById, highlightedEdgeIds, visibleLinks])
+
+  const storySentence = useMemo(() => {
+    if (!activeStory) return ''
+    const base = activeStory.narrationSteps[storyStep] || activeStory.narrationSteps[0] || ''
+    return `Situation ${storyStep + 1}: ${truncate(base, 80)}`
+  }, [activeStory, storyStep])
+
+  const shouldAutoCamera = () => Date.now() - manualNavAt > 2000
+
+  const focusOnNode = (nodeId, zoomTarget = 1.04) => {
+    const node = nodesById[nodeId]
+    if (!node) return
+    if (!shouldAutoCamera()) return
+    setAnimateCamera(true)
+    setZoom(zoomTarget)
+    setPan({
+      x: BASE_WIDTH / 2 - node.x * zoomTarget,
+      y: BASE_HEIGHT / 2 - node.y * zoomTarget,
+    })
+  }
+
+  const resetView = () => {
+    if (!shouldAutoCamera()) return
+    setAnimateCamera(true)
+    setZoom(0.78)
+    setPan({ x: 60, y: 30 })
+  }
+
+  const refreshComments = async () => {
+    const data = await fetchComments()
+    setComments(data)
+  }
+
+  useEffect(() => {
+    refreshComments()
+  }, [selectedNodeId, selectedEdge])
+
+  useEffect(() => {
+    const seen = sessionStorage.getItem('health-map-onboarding-dismissed')
+    setOnboardingVisible(!seen)
+  }, [])
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(isSmallScreen())
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (selectedNodeId) params.set('selectedNode', selectedNodeId)
+    else params.delete('selectedNode')
+    params.set('depth', String(depth))
+    Object.keys(filters).forEach((key) => params.set(`f_${key}`, filters[key] ? '1' : '0'))
+    if (storyTitle) params.set('story', storyTitle)
+    else params.delete('story')
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`)
+  }, [selectedNodeId, depth, filters, storyTitle])
+
+  useEffect(() => {
+    if (!storyPlaying || !activeStory) return undefined
+    const tick = async () => {
+      await sleep(1200)
+      setStoryStep((prev) => {
+        const next = Math.min(prev + 1, activeStory.pathNodes.length - 1)
+        if (next === prev) {
+          setStoryPlaying(false)
+          return prev
+        }
+        return next
+      })
+    }
+    tick()
+  }, [storyPlaying, storyStep, activeStory])
+
+  useEffect(() => {
+    if (!activeStory) return
+    if (!depthOverridden) setDepth(1)
+    const id = activeStory.pathNodes[Math.min(storyStep, activeStory.pathNodes.length - 1)]
+    setSelectedNodeId(id)
+    setSelectedEdge(null)
+    focusOnNode(id, 1.06)
+  }, [activeStory, storyStep])
+
+  useEffect(() => {
+    if (!panelOpen) {
+      resetView()
+      return
+    }
+    if (!isMobile) {
+      resetView()
+    }
+  }, [panelOpen, isMobile])
+
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return
+    setAnimateCamera(false)
+    setManualNavAt(Date.now())
+    dragRef.current = { x: event.clientX, y: event.clientY, pan }
+
+    const move = (moveEvent) => {
+      if (!dragRef.current) return
+      setPan({
+        x: dragRef.current.pan.x + (moveEvent.clientX - dragRef.current.x),
+        y: dragRef.current.pan.y + (moveEvent.clientY - dragRef.current.y),
+      })
+    }
+
+    const up = () => {
+      dragRef.current = null
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const onWheel = (event) => {
+    event.preventDefault()
+    setAnimateCamera(false)
+    setManualNavAt(Date.now())
+    const factor = event.deltaY > 0 ? 0.93 : 1.08
+    setZoom((prev) => Math.max(0.52, Math.min(2.5, prev * factor)))
+  }
+
+  const onNodeClick = (nodeId) => {
+    setSelectedNodeId(nodeId)
+    setSelectedEdge(null)
+    focusOnNode(nodeId)
+    if (onboardingVisible) {
+      setOnboardingVisible(false)
+      sessionStorage.setItem('health-map-onboarding-dismissed', '1')
+    }
+  }
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <h1>Healthcare Access Stakeholder Causal Map</h1>
-        <p>
-          Click any stakeholder, barrier, or outcome node to trace how effects
-          propagate across the system.
-        </p>
+      <SettingsDrawer
+        open={drawerOpen}
+        filters={filters}
+        onToggleFilter={(key) => setFilters((previous) => ({ ...previous, [key]: !previous[key] }))}
+        onClose={() => setDrawerOpen(false)}
+      />
+
+      <header className="toolbar">
+        <button type="button" onClick={() => setDrawerOpen(true)}>Settings</button>
+
+        <div className="depth-control" role="group" aria-label="Impact depth">
+          <span>Impact Depth</span>
+          {[1, 2, 3].map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={depth === value ? 'active' : ''}
+              onClick={() => {
+                setDepth(value)
+                setDepthOverridden(true)
+              }}
+            >
+              Depth {value}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setStoryMode(true)
+            setPanelOpen(true)
+          }}
+        >
+          Explore Stories
+        </button>
       </header>
 
-      <main className="app-layout">
-        <section className="map-panel" aria-label="Interactive causal map">
-          <svg viewBox="0 0 1260 920" role="img" aria-labelledby="mapTitle">
-            <title id="mapTitle">Interactive stakeholder causal network</title>
+      {onboardingVisible && (
+        <div className="onboarding-banner">
+          Click a node to trace system impacts. Use Explore Stories for guided walkthroughs. Open Settings for filters.
+        </div>
+      )}
 
-            <defs>
-              <marker
-                id="arrow-neutral"
-                markerWidth="10"
-                markerHeight="10"
-                refX="7"
-                refY="3"
-                orient="auto"
-              >
-                <path d="M0,0 L8,3 L0,6 Z" fill="#6f6f6f" />
-              </marker>
-              <marker
-                id="arrow-worsens"
-                markerWidth="10"
-                markerHeight="10"
-                refX="7"
-                refY="3"
-                orient="auto"
-              >
-                <path d="M0,0 L8,3 L0,6 Z" fill="#cf3d3d" />
-              </marker>
-              <marker
-                id="arrow-improves"
-                markerWidth="10"
-                markerHeight="10"
-                refX="7"
-                refY="3"
-                orient="auto"
-              >
-                <path d="M0,0 L8,3 L0,6 Z" fill="#2f8f59" />
-              </marker>
-            </defs>
-
-            {sectionLabels.map((section) => (
-              <text
-                className="section-title"
-                key={section.text}
-                x={section.x}
-                y={section.y}
-              >
-                {section.text}
-              </text>
-            ))}
-
-            {links.map((link) => {
-              const sourceNode = nodesById[link.source]
-              const targetNode = nodesById[link.target]
-              const highlighted = highlightedEdgeIds.has(link.id)
-
-              return (
-                <g key={link.id}>
-                  <path
-                    d={buildCurve(sourceNode, targetNode)}
-                    className={`edge ${highlighted ? 'highlighted' : ''}`}
-                    stroke={getEdgeColor(link.polarity)}
-                    markerEnd={`url(#arrow-${link.polarity})`}
-                  />
-                  {highlighted && (
-                    <text
-                      className="edge-label"
-                      x={(sourceNode.x + targetNode.x) / 2}
-                      y={(sourceNode.y + targetNode.y) / 2 - 8}
-                    >
-                      {link.relation}
-                    </text>
-                  )}
-                </g>
-              )
-            })}
-
-            {nodes.map((node) => {
-              const style = groupStyles[node.group]
-              const isSelected = node.id === selectedNodeId
-              const isConnected = highlightedNodeIds.has(node.id)
-
-              return (
-                <g
-                  key={node.id}
-                  className={`node-group ${isSelected ? 'selected' : ''}`}
-                  onClick={() => setSelectedNodeId(node.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      setSelectedNodeId(node.id)
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Focus ${node.label}`}
-                >
-                  <rect
-                    x={node.x - NODE_WIDTH / 2}
-                    y={node.y - NODE_HEIGHT / 2}
-                    width={NODE_WIDTH}
-                    height={NODE_HEIGHT}
-                    rx="10"
-                    fill={style.fill}
-                    stroke={style.stroke}
-                    className={`node-rect ${isConnected ? 'connected' : ''}`}
-                  />
-                  <text className="node-label" x={node.x} y={node.y + 5}>
-                    {node.label}
-                  </text>
-                </g>
-              )
-            })}
-          </svg>
-        </section>
-
-        <aside className="narration-panel">
-          <h2>{selectedNode.label}</h2>
-          <p className="node-description">{selectedNode.description}</p>
-
-          <div className="legend">
-            <span><i className="swatch worsen" /> increases burden</span>
-            <span><i className="swatch improve" /> reduces burden</span>
-            <span><i className="swatch neutral" /> operational link</span>
+      <main className={`layout ${panelOpen ? 'panel-open' : 'panel-closed'}`}>
+        <section className="graph-wrapper">
+          <div className="hover-banner" aria-live="polite">
+            {tooltip ? (
+              <>
+                <strong>{tooltip.text}</strong>
+                {tooltip.note && <span className="micro">{tooltip.note}</span>}
+              </>
+            ) : (
+              <span className="micro">Hover a node or edge to see contextual details.</span>
+            )}
           </div>
 
-          <h3>Direct Effects</h3>
-          <ul>
-            {directConnections.slice(0, 8).map((link) => (
-              <li key={link.id}>{sentenceFromLink(link, nodesById)}</li>
-            ))}
-          </ul>
+          <div className="canvas-actions">
+            <button type="button" onClick={resetView}>Reset View</button>
+            <button type="button" onClick={() => setPanelOpen((v) => !v)}>{panelOpen ? 'Close Details' : 'See Details'}</button>
+          </div>
 
-          <h3>Forward Narrative Chain</h3>
-          <ol>
-            {narrative.forward.length > 0 ? (
-              narrative.forward.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)
-            ) : (
-              <li>No outgoing pathways in this model.</li>
-            )}
-          </ol>
+          <GraphCanvas
+            nodesToRender={visibleNodes}
+            linksToRender={visibleLinks}
+            nodesById={nodesById}
+            selectedNodeId={selectedNodeId}
+            selectedEdgeId={selectedEdge?.id || ''}
+            highlightedNodeIds={highlightedNodeIds}
+            highlightedEdgeIds={highlightedEdgeIds}
+            onNodeClick={onNodeClick}
+            onEdgeClick={(edge) => {
+              setSelectedEdge(edge)
+              setPanelOpen(true)
+              if (onboardingVisible) {
+                setOnboardingVisible(false)
+                sessionStorage.setItem('health-map-onboarding-dismissed', '1')
+              }
+            }}
+            onNodeDoubleClick={(nodeId) => {
+              setAnimateCamera(true)
+              setManualNavAt(0)
+              focusOnNode(nodeId, 1.18)
+            }}
+            setTooltip={setTooltip}
+            commentsByTarget={commentsByTarget}
+            zoom={zoom}
+            pan={pan}
+            animateCamera={animateCamera}
+            onPointerDown={onPointerDown}
+            onWheel={onWheel}
+            aggregatedLabelCache={aggregatedLabelCache}
+            storyEdgeIds={storyEdgeIds}
+          />
+        </section>
 
-          <h3>Who Shapes This Node</h3>
-          <ol>
-            {narrative.backward.length > 0 ? (
-              narrative.backward.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)
-            ) : (
-              <li>No upstream influences in this model.</li>
-            )}
-          </ol>
-        </aside>
+        <RightPanel
+          open={panelOpen}
+          onClose={() => setPanelOpen(false)}
+          selectedNode={selectedNode}
+          selectedNodeId={selectedNodeId}
+          selectedEdge={selectedEdge}
+          details={details}
+          storyMode={storyMode}
+          setStoryMode={setStoryMode}
+          activeStory={activeStory}
+          setStoryTitle={(title) => {
+            setStoryTitle(title)
+            setStoryStep(0)
+            setStoryPlaying(false)
+            setPanelOpen(true)
+            setStoryMode(true)
+          }}
+          storyStep={storyStep}
+          storySentence={storySentence}
+          onPlay={() => {
+            setStoryPlaying(true)
+            setPanelOpen(true)
+          }}
+          onNext={() => {
+            if (!activeStory) return
+            setStoryPlaying(false)
+            setStoryStep((prev) => Math.min(prev + 1, activeStory.pathNodes.length - 1))
+          }}
+          onBack={() => {
+            if (!activeStory) return
+            setStoryPlaying(false)
+            setStoryStep((prev) => Math.max(prev - 1, 0))
+          }}
+          onReset={() => {
+            setStoryPlaying(false)
+            setStoryStep(0)
+            resetView()
+          }}
+          comments={comments}
+          userIdentifier={userIdentifier}
+          setUserIdentifier={setUserIdentifier}
+          refreshComments={refreshComments}
+        />
       </main>
+
+      <footer className="legend-bar">
+        <strong>Legend</strong>
+        {Object.values(edgeStyle).map((item) => (
+          <div key={item.label} className="legend-row horizontal">
+            <i style={{ background: item.color }} />
+            <span>{item.label}</span>
+          </div>
+        ))}
+        {Object.values(groupMeta).map((item) => (
+          <div key={item.label} className="legend-row horizontal">
+            <i style={{ background: item.fill, border: `1px solid ${item.stroke}` }} />
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </footer>
     </div>
   )
 }
