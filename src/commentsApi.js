@@ -9,6 +9,18 @@ export const hashIdentifier = async (identifier) => {
   return toHex(digest)
 }
 
+const getOwnerHash = async (email) => {
+  if (email?.trim()) {
+    return hashIdentifier(email)
+  }
+  let anonOwnerKey = localStorage.getItem('health-map-anon-owner-key')
+  if (!anonOwnerKey) {
+    anonOwnerKey = crypto.randomUUID()
+    localStorage.setItem('health-map-anon-owner-key', anonOwnerKey)
+  }
+  return hashIdentifier(anonOwnerKey)
+}
+
 const asJson = async (response) => {
   if (!response.ok) {
     const fallback = await response.text()
@@ -30,12 +42,11 @@ export const createComment = async ({
   targetId,
   stakeholderCategory,
   noteText,
-  contactInfo,
-  privateUserIdentifier,
+  email,
   displayName,
   parentId,
 }) => {
-  const privateHash = await hashIdentifier(privateUserIdentifier)
+  const emailHash = await getOwnerHash(email)
   const response = await fetch(API_BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -44,8 +55,7 @@ export const createComment = async ({
       targetId,
       stakeholderCategory,
       noteText,
-      contactInfo,
-      privateUserIdentifier: privateHash,
+      emailHash,
       displayName,
       parentId,
     }),
@@ -53,24 +63,24 @@ export const createComment = async ({
   return asJson(response)
 }
 
-export const updateComment = async ({ id, noteText, privateUserIdentifier }) => {
-  const privateHash = await hashIdentifier(privateUserIdentifier)
+export const updateComment = async ({ id, noteText, email }) => {
+  const emailHash = await getOwnerHash(email)
   const response = await fetch(`${API_BASE}/${id}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-hash': privateHash,
+      'x-user-hash': emailHash,
     },
     body: JSON.stringify({ noteText }),
   })
   return asJson(response)
 }
 
-export const deleteComment = async ({ id, privateUserIdentifier }) => {
-  const privateHash = await hashIdentifier(privateUserIdentifier)
+export const deleteComment = async ({ id, email }) => {
+  const emailHash = await getOwnerHash(email)
   const response = await fetch(`${API_BASE}/${id}`, {
     method: 'DELETE',
-    headers: { 'x-user-hash': privateHash },
+    headers: { 'x-user-hash': emailHash },
   })
   return asJson(response)
 }

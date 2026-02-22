@@ -15,11 +15,11 @@ const NODE_WIDTH = 210
 const NODE_HEIGHT = 62
 
 const groupMeta = {
-  companies: { label: 'Companies', fill: '#fef5d6', stroke: '#b88d16' },
-  products: { label: 'Products & Services', fill: '#dff2ff', stroke: '#2f79a9' },
-  authorizers: { label: 'Authorizers', fill: '#f8e9f2', stroke: '#a54d81' },
-  barriers: { label: 'Barriers', fill: '#fde3df', stroke: '#bf4f43' },
-  outcomes: { label: 'People & Supports', fill: '#e8f8e0', stroke: '#5e9f4f' },
+  companies: { label: 'Assistive Tech Companies', fill: '#e8f1ff', stroke: '#2e6fae' },
+  products: { label: 'Products & Services', fill: '#fff4d6', stroke: '#9a6a00' },
+  authorizers: { label: 'Authorizers', fill: '#f2eafe', stroke: '#6b4ca5' },
+  barriers: { label: 'Barriers', fill: '#e9eef7', stroke: '#4a627f' },
+  outcomes: { label: 'Community (People & Support)', fill: '#fbeaf3', stroke: '#a24d7a' },
 }
 
 const edgeStyle = {
@@ -119,13 +119,56 @@ const rawLinks = [
 
 const links = rawLinks.map((link, index) => ({ ...link, id: `link-${index}` }))
 
-const sectionLabels = [
-  { text: 'Products & Services', x: 150 * SCALE_FACTOR, y: 180 * SCALE_FACTOR },
-  { text: 'Companies', x: 760 * SCALE_FACTOR, y: 40 * SCALE_FACTOR },
-  { text: 'Authorizers', x: 640 * SCALE_FACTOR, y: 500 * SCALE_FACTOR },
-  { text: 'Access Barriers', x: 110 * SCALE_FACTOR, y: 760 * SCALE_FACTOR },
-  { text: 'People & Supports', x: 420 * SCALE_FACTOR, y: 980 * SCALE_FACTOR },
-]
+const PERSPECTIVES = {
+  community: {
+    label: 'Community',
+    subtext: 'Community (People & Support)',
+    seedNodes: ['community_orgs', 'person_disability', 'caregivers', 'employers'],
+  },
+  authorizers: {
+    label: 'Authorizers',
+    subtext: 'Clinicians, Insurers, Regulators',
+    seedNodes: ['clinicians', 'insurers', 'regulators'],
+  },
+  companies: {
+    label: 'Assistive Tech Companies',
+    subtext: 'Business, Product, Engineering, Design, Research',
+    seedNodes: ['business_exec', 'product_mgr', 'engineers', 'designers', 'researchers'],
+  },
+}
+
+const PERSPECTIVE_OVERVIEW = {
+  community: {
+    title: 'Community (People & Support) Overview',
+    summary:
+      'Community support reduces trust and navigation burdens while stabilizing daily access.',
+    points: [
+      'Community Orgs connect people to services and lower information friction.',
+      'Caregivers and Employers absorb and redistribute system burden.',
+      'People with disabilities face cumulative effects across barriers.',
+    ],
+  },
+  authorizers: {
+    title: 'Authorizers Overview',
+    summary:
+      'Authorizers shape speed, eligibility, and continuity through clinical, coverage, and policy decisions.',
+    points: [
+      'Clinicians influence referral timing and care entry points.',
+      'Insurers gatekeep cost and prior authorization pathways.',
+      'Regulators set constraints that can reduce or amplify policy burden.',
+    ],
+  },
+  companies: {
+    title: 'Assistive Tech Companies Overview',
+    summary:
+      'Company decisions determine whether products and services reduce or increase downstream burden.',
+    points: [
+      'Executives and PMs set scope, sequencing, and resource priorities.',
+      'Design and engineering choices shape usability and accessibility outcomes.',
+      'Research quality drives how well solutions fit lived reality.',
+    ],
+  },
+}
 
 const truncate = (text, max) => (text.length <= max ? text : `${text.slice(0, max - 1)}…`)
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -259,6 +302,17 @@ const getNeighborhood = ({ startId, depth, bySource, byTarget }) => {
   return { nodeIds, edgeIds }
 }
 
+const getNeighborhoodFromMany = ({ startIds, depth, bySource, byTarget }) => {
+  const nodesSet = new Set()
+  const edgesSet = new Set()
+  startIds.forEach((startId) => {
+    const next = getNeighborhood({ startId, depth, bySource, byTarget })
+    next.nodeIds.forEach((id) => nodesSet.add(id))
+    next.edgeIds.forEach((id) => edgesSet.add(id))
+  })
+  return { nodeIds: nodesSet, edgeIds: edgesSet }
+}
+
 const SettingsDrawer = memo(function SettingsDrawer({ open, filters, onToggleFilter, onClose }) {
   return (
     <aside className={`settings-drawer ${open ? 'open' : ''}`}>
@@ -314,7 +368,7 @@ const ExploreStories = memo(function ExploreStories({
           <div className="story-actions">
             <button type="button" onClick={play}>Play</button>
             <button type="button" onClick={next}>Next</button>
-            <button type="button" onClick={back}>Back</button>
+            <button type="button" onClick={back}>Prev</button>
             <button type="button" onClick={reset}>Reset</button>
           </div>
         </div>
@@ -323,13 +377,21 @@ const ExploreStories = memo(function ExploreStories({
   )
 })
 
-const CommentsPanel = memo(function CommentsPanel({ selectedTarget, comments, userIdentifier, setUserIdentifier, refresh }) {
-  const [expanded, setExpanded] = useState(false)
+const CommentsPanel = memo(function CommentsPanel({
+  selectedTarget,
+  comments,
+  email,
+  setEmail,
+  refresh,
+  title = 'Comments',
+  showTarget = true,
+  defaultExpanded = false,
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const [displayName, setDisplayName] = useState('')
-  const [category, setCategory] = useState('Companies')
+  const [category, setCategory] = useState('')
   const [otherCategory, setOtherCategory] = useState('')
   const [noteText, setNoteText] = useState('')
-  const [contactInfo, setContactInfo] = useState('')
   const [replyTo, setReplyTo] = useState('')
 
   const targetComments = useMemo(
@@ -357,17 +419,18 @@ const CommentsPanel = memo(function CommentsPanel({ selectedTarget, comments, us
 
   const submit = async (event) => {
     event.preventDefault()
-    if (!userIdentifier.trim()) return
     await createComment({
       targetType: selectedTarget.type,
       targetId: selectedTarget.id,
       stakeholderCategory: category === 'Other' ? otherCategory || 'Other' : category,
       noteText,
-      contactInfo,
-      privateUserIdentifier: userIdentifier,
+      email,
       displayName,
       parentId: replyTo,
     })
+    setDisplayName('')
+    setCategory('')
+    setOtherCategory('')
     setNoteText('')
     setReplyTo('')
     await refresh()
@@ -377,54 +440,51 @@ const CommentsPanel = memo(function CommentsPanel({ selectedTarget, comments, us
     const next = prompt('Edit comment', comment.noteText)
     if (!next || !next.trim()) return
     try {
-      await updateComment({ id: comment.id, noteText: next.trim(), privateUserIdentifier: userIdentifier })
+      await updateComment({ id: comment.id, noteText: next.trim(), email })
       await refresh()
     } catch {
-      alert('Only the original author can edit this comment.')
+      alert('To edit, provide the same email used when creating this comment.')
     }
   }
 
   const removeComment = async (comment) => {
     try {
-      await deleteComment({ id: comment.id, privateUserIdentifier: userIdentifier })
+      await deleteComment({ id: comment.id, email })
       await refresh()
     } catch {
-      alert('Only the original author can delete this comment.')
+      alert('To delete, provide the same email used when creating this comment.')
     }
   }
 
   return (
     <section className="comments-panel">
       <div className="panel-subhead sticky">
-        <h4>Comments</h4>
+        <h4>{title}</h4>
         <button type="button" onClick={() => setExpanded((v) => !v)}>{expanded ? 'Collapse' : 'Expand'}</button>
       </div>
 
       {expanded && (
         <>
-          <p className="micro">Target: {selectedTarget.type} / {selectedTarget.id}</p>
+          {showTarget && <p className="micro">Target: {selectedTarget.type} / {selectedTarget.id}</p>}
           <form className="comment-form" onSubmit={submit}>
             <label>
-              Private Identifier (required)
+              Display Name
               <input
                 required
-                value={userIdentifier}
-                onChange={(event) => setUserIdentifier(event.target.value)}
-                placeholder="email or private identifier"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="name shown publicly"
               />
             </label>
             <label>
-              Display Name (optional)
-              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="shown publicly" />
-            </label>
-            <label>
               Who are you?
-              <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                <option>Companies</option>
+              <select required value={category} onChange={(event) => setCategory(event.target.value)}>
+                <option value="" disabled>Select category</option>
+                <option>Assistive Tech Companies</option>
                 <option>Authorizers</option>
                 <option>Products & Services</option>
                 <option>Barriers</option>
-                <option>People & Supports</option>
+                <option>Community (People & Support)</option>
                 <option>Other</option>
               </select>
             </label>
@@ -435,12 +495,17 @@ const CommentsPanel = memo(function CommentsPanel({ selectedTarget, comments, us
               </label>
             )}
             <label>
-              Contact Info (optional)
-              <input value={contactInfo} onChange={(event) => setContactInfo(event.target.value)} />
-            </label>
-            <label>
               Note
               <textarea rows={3} required value={noteText} onChange={(event) => setNoteText(event.target.value)} />
+            </label>
+            <label>
+              If you are interested in contributing to this healthcare access model or other projects, please share your email
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="optional@email.com"
+              />
             </label>
             {replyTo && <p className="micro">Replying to {replyTo}</p>}
             <button type="submit">Submit Comment</button>
@@ -479,6 +544,91 @@ const CommentsPanel = memo(function CommentsPanel({ selectedTarget, comments, us
   )
 })
 
+const CommentModal = memo(function CommentModal({
+  open,
+  onClose,
+  selectedTarget,
+  email,
+  setEmail,
+  onSaved,
+}) {
+  const [displayName, setDisplayName] = useState('')
+  const [category, setCategory] = useState('')
+  const [otherCategory, setOtherCategory] = useState('')
+  const [noteText, setNoteText] = useState('')
+
+  if (!open) return null
+
+  const submit = async (event) => {
+    event.preventDefault()
+    await createComment({
+      targetType: selectedTarget.type,
+      targetId: selectedTarget.id,
+      stakeholderCategory: category === 'Other' ? otherCategory || 'Other' : category,
+      noteText,
+      email,
+      displayName,
+      parentId: '',
+    })
+    setDisplayName('')
+    setCategory('')
+    setOtherCategory('')
+    setNoteText('')
+    await onSaved()
+    onClose()
+  }
+
+  return (
+    <div className="comment-modal-backdrop" onClick={onClose}>
+      <div className="comment-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="comment-modal-header">
+          <h3>Add Comment</h3>
+          <button type="button" onClick={onClose}>X</button>
+        </div>
+        <p className="micro">Target: {selectedTarget.type} / {selectedTarget.id}</p>
+        <form className="comment-form" onSubmit={submit}>
+          <label>
+            Display Name
+            <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </label>
+          <label>
+            Who are you?
+            <select required value={category} onChange={(event) => setCategory(event.target.value)}>
+              <option value="" disabled>Select category</option>
+              <option>Assistive Tech Companies</option>
+              <option>Authorizers</option>
+              <option>Products & Services</option>
+              <option>Barriers</option>
+              <option>Community (People & Support)</option>
+              <option>Other</option>
+            </select>
+          </label>
+          {category === 'Other' && (
+            <label>
+              Other Category
+              <input value={otherCategory} onChange={(event) => setOtherCategory(event.target.value)} />
+            </label>
+          )}
+          <label>
+            Note
+            <textarea rows={3} required value={noteText} onChange={(event) => setNoteText(event.target.value)} />
+          </label>
+          <label>
+            If you are interested in contributing to this healthcare access model or other projects, please share your email
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="optional@email.com"
+            />
+          </label>
+          <button type="submit">Save Comment</button>
+        </form>
+      </div>
+    </div>
+  )
+})
+
 const RightPanel = memo(function RightPanel({
   open,
   onClose,
@@ -501,55 +651,78 @@ const RightPanel = memo(function RightPanel({
   setHoveredAssocEdgeId,
   setLockedAssocEdgeId,
   comments,
-  userIdentifier,
-  setUserIdentifier,
+  email,
+  setEmail,
   refreshComments,
+  onOpenCommentModal,
+  activePerspective,
 }) {
-  const [tab, setTab] = useState('Overview')
+  const [tab, setTab] = useState('Description')
   const [showMore, setShowMore] = useState(false)
 
   useEffect(() => {
     setShowMore(false)
   }, [selectedNodeId, tab, storyStep])
 
+  useEffect(() => {
+    if (activePerspective && !selectedNodeId) {
+      setTab('Overview')
+    }
+  }, [activePerspective, selectedNodeId])
+
   const selectedTarget = selectedEdge
     ? { type: 'edge', id: selectedEdge.id }
     : { type: 'node', id: selectedNodeId || '' }
+  const perspectiveOverview = activePerspective ? PERSPECTIVE_OVERVIEW[activePerspective] : null
+  const targetCommentsChrono = useMemo(
+    () =>
+      comments
+        .filter((comment) => comment.targetType === selectedTarget.type && comment.targetId === selectedTarget.id)
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)),
+    [comments, selectedTarget.type, selectedTarget.id],
+  )
 
   return (
     <aside className={`right-panel ${open ? 'open' : ''}`}>
       <div className="right-panel-header sticky">
         <div>
-          <h2>Details</h2>
+          <h2>Description</h2>
           <p className="micro">Use tabs for quick overview or deeper analysis.</p>
         </div>
         <button type="button" onClick={onClose}>X</button>
       </div>
 
       <div className="tab-row sticky">
-        {['Overview', 'Details', 'Evidence'].map((name) => (
+        {['Overview', 'Description', 'Evidence', 'Comments'].map((name) => (
           <button key={name} type="button" className={tab === name ? 'active' : ''} onClick={() => setTab(name)}>
             {name}
           </button>
         ))}
       </div>
 
-      <button type="button" className="story-toggle" onClick={() => setStoryMode((v) => !v)}>
-        {storyMode ? 'Hide Story Mode' : 'Explore Stories'}
-      </button>
+      {!!activeStory && (
+        <section className="story-mode">
+          <h3>{activeStory.title}</h3>
+          <p className="story-situation">{storySentence}</p>
+          <div className="story-actions">
+            <button type="button" onClick={onPlay}>Play</button>
+            <button type="button" onClick={onNext}>Next</button>
+            <button type="button" onClick={onBack}>Prev</button>
+            <button type="button" onClick={onReset}>Reset</button>
+          </div>
+        </section>
+      )}
 
-      {storyMode && (
-        <ExploreStories
-          storyMode={storyMode}
-          activeStory={activeStory}
-          setStoryTitle={setStoryTitle}
-          play={onPlay}
-          next={onNext}
-          back={onBack}
-          reset={onReset}
-          step={storyStep}
-          sentence={storySentence}
-        />
+      {!selectedNode && tab === 'Overview' && perspectiveOverview && (
+        <section className="structured-card">
+          <h3>{perspectiveOverview.title}</h3>
+          <p className="one-line">{perspectiveOverview.summary}</p>
+          <ul className="impact-list">
+            {perspectiveOverview.points.map((point) => (
+              <li key={point}><p>{point}</p></li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {selectedNode && (
@@ -578,7 +751,7 @@ const RightPanel = memo(function RightPanel({
             </>
           )}
 
-          {tab === 'Details' && (
+          {tab === 'Description' && (
             <>
               <ul className="impact-list">
                 {details.directPairs.map((item) => (
@@ -605,36 +778,56 @@ const RightPanel = memo(function RightPanel({
             </>
           )}
 
-          <button type="button" className="link-btn" onClick={() => setShowMore((v) => !v)}>
-            {showMore ? 'Show Less' : 'Show More'}
-          </button>
-
-          {showMore && (
-            <div className="show-more-block">
-              <h4>Chains</h4>
-              <ol>
-                {details.chains.map((line, index) => (
-                  <li key={`${line}-${index}`}>{line}</li>
-                ))}
-              </ol>
-              <h4>Who Shapes This Node</h4>
-              <ol>
-                {details.upstream.map((line, index) => (
-                  <li key={`${line}-${index}`}>{line}</li>
-                ))}
-              </ol>
-            </div>
+          {(tab === 'Overview' || tab === 'Description') && (
+            <>
+              <button type="button" className="link-btn" onClick={() => setShowMore((v) => !v)}>
+                {showMore ? 'Show Less' : 'Show More'}
+              </button>
+              {showMore && (
+                <div className="show-more-block">
+                  <h4>Chains</h4>
+                  <ol>
+                    {details.chains.map((line, index) => (
+                      <li key={`${line}-${index}`}>{line}</li>
+                    ))}
+                  </ol>
+                  <h4>Who Shapes This Node</h4>
+                  <ol>
+                    {details.upstream.map((line, index) => (
+                      <li key={`${line}-${index}`}>{line}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}
 
-      <CommentsPanel
-        selectedTarget={selectedTarget}
-        comments={comments}
-        userIdentifier={userIdentifier}
-        setUserIdentifier={setUserIdentifier}
-        refresh={refreshComments}
-      />
+      {tab === 'Comments' && (
+        <section className="structured-card">
+          <button type="button" disabled={!selectedTarget.id} onClick={() => onOpenCommentModal(selectedTarget)}>
+            Add Comment
+          </button>
+          {!selectedTarget.id && <p className="micro">Select a node or edge to add a comment.</p>}
+          <div className="comment-list">
+            {targetCommentsChrono.length === 0 ? (
+              <p className="micro">No comments submitted yet.</p>
+            ) : (
+              targetCommentsChrono.map((comment) => (
+                <article key={comment.id} className="comment-item">
+                  <header>
+                    <strong>{comment.displayName || 'User Comment'}</strong>
+                    <span>{new Date(comment.timestamp).toLocaleString()}</span>
+                  </header>
+                  <p className="micro">{comment.stakeholderCategory}</p>
+                  <p>{comment.noteText}</p>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      )}
     </aside>
   )
 })
@@ -662,7 +855,7 @@ const GraphCanvas = memo(function GraphCanvas({
   storyEdgeIds,
 }) {
   const showAggregate = !selectedNodeId
-  const verbFont = 11
+  const verbFont = 13
   const arrowLength = 13
   const arrowHalfWidth = 5.5
   const renderedEdges = useMemo(
@@ -716,6 +909,31 @@ const GraphCanvas = memo(function GraphCanvas({
     ],
   )
 
+  const groupFrames = useMemo(() => {
+    const byGroup = {}
+    nodesToRender.forEach((node) => {
+      if (!byGroup[node.group]) byGroup[node.group] = []
+      byGroup[node.group].push(node)
+    })
+
+    return Object.entries(byGroup).map(([group, groupNodes]) => {
+      const minX = Math.min(...groupNodes.map((node) => node.x - NODE_WIDTH / 2)) - 24
+      const maxX = Math.max(...groupNodes.map((node) => node.x + NODE_WIDTH / 2)) + 24
+      const minY = Math.min(...groupNodes.map((node) => node.y - NODE_HEIGHT / 2)) - 32
+      const maxY = Math.max(...groupNodes.map((node) => node.y + NODE_HEIGHT / 2)) + 26
+      return {
+        group,
+        label: groupMeta[group].label,
+        stroke: groupMeta[group].stroke,
+        fill: groupMeta[group].fill,
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      }
+    })
+  }, [nodesToRender])
+
   return (
     <section className="map-canvas">
       <svg
@@ -727,11 +945,24 @@ const GraphCanvas = memo(function GraphCanvas({
         onClick={onBackgroundClick}
       >
         <g className="camera" ref={graphLayerRef}>
-          {sectionLabels.map((section) => (
-            <text className="section-title" key={section.text} x={section.x} y={section.y}>{section.text}</text>
+          {groupFrames.map((frame) => (
+            <g key={`${frame.group}-frame`} className="group-frame">
+              <rect
+                x={frame.x}
+                y={frame.y}
+                width={frame.width}
+                height={frame.height}
+                rx="16"
+                fill={frame.fill}
+                stroke={frame.stroke}
+              />
+              <text className="group-frame-label" x={frame.x + 14} y={frame.y + 24}>
+                {frame.label}
+              </text>
+            </g>
           ))}
 
-          {renderedEdges.map(({ edge, geometry, style, active, faded, isSelected, commentPreview }) => {
+          {renderedEdges.map(({ edge, geometry, style, active, faded, isSelected, commentPreview, label, labelPos }) => {
             const assocActive = associationEdgeId === edge.id
             const focusDim = associationEdgeId && !assocActive
             return (
@@ -785,6 +1016,26 @@ const GraphCanvas = memo(function GraphCanvas({
                   <text className="comment-pin" x={geometry.midX - 11} y={geometry.midY + 12}>💬</text>
                 )}
                 {isSelected && <circle className="selected-dot" cx={geometry.midX} cy={geometry.midY} r="6" />}
+                {label && (
+                  <g className={`${faded ? 'faded' : ''} ${associationEdgeId === edge.id ? 'assoc-active' : ''} ${associationEdgeId && associationEdgeId !== edge.id ? 'assoc-dim' : ''}`}>
+                    <rect
+                      className="edge-label-pill"
+                      x={labelPos.x - (label.length * verbFont * 0.3 + 8)}
+                      y={labelPos.y - 18}
+                      width={label.length * verbFont * 0.6 + 16}
+                      height={verbFont + 8}
+                      rx="8"
+                    />
+                    <text
+                      className={`edge-verb ${faded ? 'faded' : ''} ${associationEdgeId === edge.id ? 'assoc-active' : ''}`}
+                      x={labelPos.x}
+                      y={labelPos.y - 6}
+                      style={{ fontSize: `${verbFont}px` }}
+                    >
+                      {label}
+                    </text>
+                  </g>
+                )}
               </g>
             )
           })}
@@ -835,29 +1086,6 @@ const GraphCanvas = memo(function GraphCanvas({
               </g>
             )
           })}
-
-          {renderedEdges.map(({ edge, geometry, labelPos, faded, label }) =>
-            label ? (
-              <g key={`${edge.id}-label`} className={`${faded ? 'faded' : ''} ${associationEdgeId === edge.id ? 'assoc-active' : ''} ${associationEdgeId && associationEdgeId !== edge.id ? 'assoc-dim' : ''}`}>
-                <rect
-                  className="edge-label-pill"
-                  x={labelPos.x - (label.length * verbFont * 0.3 + 8)}
-                  y={labelPos.y - 18}
-                  width={label.length * verbFont * 0.6 + 16}
-                  height={verbFont + 8}
-                  rx="8"
-                />
-                <text
-                  className={`edge-verb ${faded ? 'faded' : ''} ${associationEdgeId === edge.id ? 'assoc-active' : ''}`}
-                  x={labelPos.x}
-                  y={labelPos.y - 6}
-                  style={{ fontSize: `${verbFont}px` }}
-                >
-                  {label}
-                </text>
-              </g>
-            ) : null,
-          )}
         </g>
       </svg>
     </section>
@@ -866,15 +1094,18 @@ const GraphCanvas = memo(function GraphCanvas({
 
 function App() {
   const initial = useMemo(() => parseStateFromUrl(), [])
+  const [screen, setScreen] = useState('landing')
   const [selectedNodeId, setSelectedNodeId] = useState(initial.selectedNode)
   const [selectedEdge, setSelectedEdge] = useState(null)
   const [depth, setDepth] = useState(initial.depth)
   const [depthOverridden, setDepthOverridden] = useState(false)
   const [filters, setFilters] = useState(initial.filters)
+  const [activePerspective, setActivePerspective] = useState('')
+  const [revealedNodeIds, setRevealedNodeIds] = useState(new Set())
 
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(true)
   const [storyMode, setStoryMode] = useState(false)
+  const [storyRevealMode, setStoryRevealMode] = useState(false)
   const [storyTitle, setStoryTitle] = useState(initial.activeStory)
   const [storyStep, setStoryStep] = useState(0)
   const [storyPlaying, setStoryPlaying] = useState(false)
@@ -886,10 +1117,13 @@ function App() {
   const [manualNavAt, setManualNavAt] = useState(0)
 
   const [comments, setComments] = useState([])
-  const [userIdentifier, setUserIdentifier] = useState('')
+  const [email, setEmail] = useState('')
+  const [commentModalTarget, setCommentModalTarget] = useState(null)
   const [onboardingVisible, setOnboardingVisible] = useState(false)
 
   const [isMobile, setIsMobile] = useState(isSmallScreen())
+  const shareTarget = useMemo(() => ({ type: 'node', id: 'global_share' }), [])
+  const [storyVisibleNodeIds, setStoryVisibleNodeIds] = useState(new Set())
 
   const dragRef = useRef(null)
   const wheelAccumRef = useRef(0)
@@ -899,8 +1133,30 @@ function App() {
   const transformRef = useRef({ x: 60, y: 30, k: 0.78 })
 
   const nodesById = useMemo(() => Object.fromEntries(nodes.map((node) => [node.id, node])), [])
+  const allAdjacency = useMemo(() => {
+    const bySource = {}
+    const byTarget = {}
+    links.forEach((edge) => {
+      if (!bySource[edge.source]) bySource[edge.source] = []
+      if (!byTarget[edge.target]) byTarget[edge.target] = []
+      bySource[edge.source].push(edge)
+      byTarget[edge.target].push(edge)
+    })
+    return { bySource, byTarget }
+  }, [])
+  const activeStory = useMemo(
+    () => storiesData.find((story) => story.title === storyTitle) || null,
+    [storyTitle],
+  )
 
-  const visibleNodes = useMemo(() => nodes.filter((node) => filters[node.group]), [filters])
+  const visibleNodes = useMemo(() => {
+    if (storyRevealMode && activeStory) {
+      return nodes.filter((node) => storyVisibleNodeIds.has(node.id))
+    }
+    const byFilter = nodes.filter((node) => filters[node.group])
+    if (!activePerspective) return byFilter
+    return byFilter.filter((node) => revealedNodeIds.has(node.id))
+  }, [filters, activePerspective, revealedNodeIds, storyRevealMode, activeStory, storyVisibleNodeIds])
   const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes])
   const visibleLinks = useMemo(
     () => links.filter((link) => visibleNodeIds.has(link.source) && visibleNodeIds.has(link.target)),
@@ -940,11 +1196,6 @@ function App() {
     })
     return map
   }, [visibleLinks, nodesById])
-
-  const activeStory = useMemo(
-    () => storiesData.find((story) => story.title === storyTitle) || null,
-    [storyTitle],
-  )
 
   const storyEdgeIds = useMemo(() => {
     if (!activeStory) return new Set()
@@ -1039,6 +1290,29 @@ function App() {
     })
   }
 
+  const focusOnNodeSet = (nodeIds, zoomPadding = 32, force = false) => {
+    if (!force && !shouldAutoCamera()) return
+    if (!nodeIds.length) return
+    const targets = nodeIds.map((id) => nodesById[id]).filter(Boolean)
+    if (!targets.length) return
+    const minX = Math.min(...targets.map((node) => node.x - NODE_WIDTH / 2))
+    const maxX = Math.max(...targets.map((node) => node.x + NODE_WIDTH / 2))
+    const minY = Math.min(...targets.map((node) => node.y - NODE_HEIGHT / 2))
+    const maxY = Math.max(...targets.map((node) => node.y + NODE_HEIGHT / 2))
+    const boundsW = Math.max(1, maxX - minX)
+    const boundsH = Math.max(1, maxY - minY)
+    const scaleX = (BASE_WIDTH - zoomPadding * 2) / boundsW
+    const scaleY = (BASE_HEIGHT - zoomPadding * 2) / boundsH
+    const k = Math.max(1.0, Math.min(2.5, Math.min(scaleX, scaleY)))
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+    applyTransform({
+      x: BASE_WIDTH / 2 - centerX * k,
+      y: BASE_HEIGHT / 2 - centerY * k,
+      k,
+    })
+  }
+
   const resetView = (force = false) => {
     if (!force && !shouldAutoCamera()) return
     applyTransform({ x: 60, y: 30, k: 0.78 })
@@ -1051,7 +1325,39 @@ function App() {
 
   useEffect(() => {
     refreshComments()
-  }, [selectedNodeId, selectedEdge])
+  }, [])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      refreshComments()
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    document.title = 'Access to U.S. Healthcare System'
+  }, [])
+
+  useEffect(() => {
+    const fromHash = window.location.hash.replace('#', '')
+    if (['landing', 'explore', 'faq', 'share', 'map'].includes(fromHash)) {
+      setScreen(fromHash)
+      window.history.replaceState({ screen: fromHash }, '', `${window.location.pathname}${window.location.search}${window.location.hash}`)
+      return
+    }
+    window.history.replaceState({ screen: 'landing' }, '', `${window.location.pathname}${window.location.search}#landing`)
+  }, [])
+
+  useEffect(() => {
+    const onPopState = (event) => {
+      const nextScreen = event.state?.screen
+      if (nextScreen && ['landing', 'explore', 'faq', 'share', 'map'].includes(nextScreen)) {
+        setScreen(nextScreen)
+      }
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   useEffect(() => () => {
     if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current)
@@ -1087,8 +1393,24 @@ function App() {
     Object.keys(filters).forEach((key) => params.set(`f_${key}`, filters[key] ? '1' : '0'))
     if (storyTitle) params.set('story', storyTitle)
     else params.delete('story')
-    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`)
-  }, [selectedNodeId, depth, filters, storyTitle])
+    const hash = screen ? `#${screen}` : ''
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}${hash}`)
+  }, [selectedNodeId, depth, filters, storyTitle, screen])
+
+  useEffect(() => {
+    if (screen !== 'map') return
+    if (visibleNodes.length > 0) return
+    setFilters({
+      companies: true,
+      products: true,
+      authorizers: true,
+      barriers: true,
+      outcomes: true,
+    })
+    if (!activePerspective && !activeStory) {
+      setScreen('landing')
+    }
+  }, [screen, visibleNodes.length, activePerspective, activeStory])
 
   useEffect(() => {
     if (!storyPlaying || !activeStory) return undefined
@@ -1110,20 +1432,61 @@ function App() {
     if (!activeStory) return
     if (!depthOverridden) setDepth(1)
     const id = activeStory.pathNodes[Math.min(storyStep, activeStory.pathNodes.length - 1)]
+    if (storyRevealMode) {
+      const visibleIds = new Set(activeStory.pathNodes.slice(0, storyStep + 1))
+      setStoryVisibleNodeIds(visibleIds)
+    }
     setSelectedNodeId(id)
     setSelectedEdge(null)
     focusOnNode(id, 1.06)
-  }, [activeStory, storyStep])
+  }, [activeStory, storyStep, storyRevealMode])
 
   useEffect(() => {
-    if (!panelOpen) {
-      resetView(true)
+    if (screen !== 'map') return
+    if (storyRevealMode && visibleNodes.length) {
+      focusOnNodeSet(visibleNodes.map((node) => node.id), 24, true)
       return
     }
-    if (!isMobile) {
+    if (activePerspective && visibleNodes.length) {
+      focusOnNodeSet(visibleNodes.map((node) => node.id), 32, true)
+      return
+    }
+    if (!panelOpen || !isMobile) {
       resetView(true)
     }
-  }, [panelOpen, isMobile])
+  }, [panelOpen, isMobile, screen, activePerspective, visibleNodes, storyRevealMode])
+
+  useEffect(() => {
+    if (screen !== 'map') return
+    if (storyRevealMode) return
+    if (!activePerspective) return
+    if (!visibleNodes.length) return
+    focusOnNodeSet(visibleNodes.map((node) => node.id), 32, true)
+  }, [screen, activePerspective, visibleNodes, storyRevealMode])
+
+  useEffect(() => {
+    if (screen !== 'map') return
+    if (storyRevealMode) return
+    if (activePerspective) return
+    if (selectedNodeId || selectedEdge) return
+    if (!visibleNodes.length) return
+    focusOnNodeSet(visibleNodes.map((node) => node.id), 40, true)
+  }, [screen, activePerspective, selectedNodeId, selectedEdge, visibleNodes, storyRevealMode])
+
+  useEffect(() => {
+    if (!activePerspective || !selectedNodeId) return
+    const expanded = getNeighborhoodFromMany({
+      startIds: [selectedNodeId],
+      depth,
+      bySource: allAdjacency.bySource,
+      byTarget: allAdjacency.byTarget,
+    })
+    setRevealedNodeIds((prev) => {
+      const next = new Set(prev)
+      expanded.nodeIds.forEach((id) => next.add(id))
+      return next
+    })
+  }, [depth, selectedNodeId, activePerspective, allAdjacency.bySource, allAdjacency.byTarget])
 
   const onPointerDown = (event) => {
     if (event.button !== 0) return
@@ -1187,7 +1550,21 @@ function App() {
   const onNodeClick = (nodeId) => {
     setSelectedNodeId(nodeId)
     setSelectedEdge(null)
-    focusOnNode(nodeId)
+    if (activePerspective) {
+      const expanded = getNeighborhoodFromMany({
+        startIds: [nodeId],
+        depth,
+        bySource: allAdjacency.bySource,
+        byTarget: allAdjacency.byTarget,
+      })
+      setRevealedNodeIds((prev) => {
+        const next = new Set(prev)
+        expanded.nodeIds.forEach((id) => next.add(id))
+        return next
+      })
+    } else {
+      focusOnNode(nodeId)
+    }
     if (onboardingVisible) {
       setOnboardingVisible(false)
       sessionStorage.setItem('health-map-onboarding-dismissed', '1')
@@ -1203,49 +1580,127 @@ function App() {
     setStoryStep(0)
   }
 
+  const beginExplore = (key) => {
+    const seed = PERSPECTIVES[key]?.seedNodes || []
+    goToScreen('map')
+    setActivePerspective(key)
+    setDepth(1)
+    setDepthOverridden(false)
+    setSelectedNodeId('')
+    setSelectedEdge(null)
+    setStoryTitle('')
+    setStoryMode(false)
+    setStoryRevealMode(false)
+    setStoryPlaying(false)
+    setStoryStep(0)
+    setStoryVisibleNodeIds(new Set())
+    setRevealedNodeIds(new Set(seed))
+    setPanelOpen(true)
+    requestAnimationFrame(() => focusOnNodeSet(seed, 28, true))
+  }
+
+  const openFaqStory = (title) => {
+    goToScreen('map')
+    setActivePerspective('')
+    setRevealedNodeIds(new Set())
+    setStoryMode(true)
+    setStoryRevealMode(true)
+    setPanelOpen(true)
+    setStoryTitle(title)
+    setStoryStep(0)
+    setStoryPlaying(false)
+    setSelectedNodeId('')
+    setSelectedEdge(null)
+    const story = storiesData.find((item) => item.title === title)
+    if (story?.pathNodes?.length) {
+      const firstOnly = new Set([story.pathNodes[0]])
+      setStoryVisibleNodeIds(firstOnly)
+      requestAnimationFrame(() => focusOnNodeSet([...firstOnly], 24, true))
+    } else {
+      setStoryVisibleNodeIds(new Set())
+    }
+  }
+
+  const goToScreen = (nextScreen) => {
+    setScreen(nextScreen)
+    window.history.pushState({ screen: nextScreen }, '', `${window.location.pathname}${window.location.search}#${nextScreen}`)
+  }
+
   return (
     <div className="app-shell">
-      <SettingsDrawer
-        open={drawerOpen}
-        filters={filters}
-        onToggleFilter={(key) => setFilters((previous) => ({ ...previous, [key]: !previous[key] }))}
-        onClose={() => setDrawerOpen(false)}
-      />
-
       <header className="toolbar">
-        <button type="button" onClick={() => setDrawerOpen(true)}>Settings</button>
-
-        <div className="depth-control" role="group" aria-label="Impact depth">
-          <span>Impact Depth</span>
-          {[1, 2, 3].map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={depth === value ? 'active' : ''}
-              onClick={() => {
-                setDepth(value)
-                setDepthOverridden(true)
-              }}
-            >
-              Depth {value}
-            </button>
-          ))}
+        <strong className="app-title">How Accessing U.S. Healthcare Works: An Interactive Systemic Map</strong>
+        <div className="top-nav">
+          <button type="button" onClick={() => goToScreen('explore')}>Explore</button>
+          <button type="button" onClick={() => goToScreen('faq')}>Ask Question</button>
+          <button type="button" onClick={() => goToScreen('share')}>Share Comment</button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setStoryMode(true)
-            setPanelOpen(true)
-          }}
-        >
-          Explore Stories
-        </button>
       </header>
 
+      <div className="view-shell">
+      {screen === 'landing' && (
+        <section className="landing-screen">
+          <h1>Access to U.S. Healthcare System</h1>
+          <div className="landing-actions">
+            <button type="button" onClick={() => goToScreen('explore')}>Explore</button>
+            <button type="button" onClick={() => goToScreen('faq')}>Ask Question</button>
+            <button type="button" onClick={() => goToScreen('share')}>Share Comment</button>
+          </div>
+        </section>
+      )}
+
+      {screen === 'explore' && (
+        <section className="landing-screen">
+          <h1>Whose perspective shall we start with?</h1>
+          <div className="perspective-grid">
+            {Object.entries(PERSPECTIVES).map(([key, option]) => (
+              <button key={key} type="button" className="perspective-card" onClick={() => beginExplore(key)}>
+                <strong>{option.label}</strong>
+                <span>{option.subtext}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {screen === 'faq' && (
+        <section className="landing-screen faq-screen">
+          <h1>Frequently Asked Questions</h1>
+          <p className="micro">Self-built LLM agent in preparation.</p>
+          <div className="faq-list">
+            <button type="button" onClick={() => openFaqStory('Prior Authorization Spiral')}>
+              Why do I have to wait so long to get care?
+            </button>
+            <button type="button" onClick={() => openFaqStory('Community Trust Repair')}>
+              How do we repair our trust in the U.S. healthcare system?
+            </button>
+          </div>
+        </section>
+      )}
+
+      {screen === 'share' && (
+        <section className="share-screen">
+          <div className="share-header">
+            <h1>Share Comment</h1>
+          </div>
+          <CommentsPanel
+            selectedTarget={shareTarget}
+            comments={comments}
+            email={email}
+            setEmail={setEmail}
+            refresh={refreshComments}
+            title="Share your thoughts"
+            showTarget={false}
+            defaultExpanded
+          />
+        </section>
+      )}
+
+      {screen === 'map' && (
+        <>
       {onboardingVisible && (
         <div className="onboarding-banner">
-          Click a node to trace system impacts. Use Explore Stories for guided walkthroughs. Open Settings for filters.
+          Click a node to trace system impacts. Use Explore, Ask Question, or Share to navigate.
         </div>
       )}
 
@@ -1264,7 +1719,24 @@ function App() {
 
           <div className="canvas-actions">
             <button type="button" onClick={() => resetView(true)}>Reset View</button>
-            <button type="button" onClick={() => setPanelOpen((v) => !v)}>{panelOpen ? 'Close Details' : 'See Details'}</button>
+            <button type="button" onClick={() => setPanelOpen((v) => !v)}>{panelOpen ? 'Close Description' : 'See Description'}</button>
+          </div>
+
+          <div className="canvas-depth" role="group" aria-label="Impact depth">
+            <span>Impact Depth</span>
+            {[1, 2, 3].map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={depth === value ? 'active' : ''}
+                onClick={() => {
+                  setDepth(value)
+                  setDepthOverridden(true)
+                }}
+              >
+                Depth {value}
+              </button>
+            ))}
           </div>
 
           <GraphCanvas
@@ -1347,27 +1819,37 @@ function App() {
           setHoveredAssocEdgeId={setHoveredAssocEdgeId}
           setLockedAssocEdgeId={setLockedAssocEdgeId}
           comments={comments}
-          userIdentifier={userIdentifier}
-          setUserIdentifier={setUserIdentifier}
+          email={email}
+          setEmail={setEmail}
           refreshComments={refreshComments}
+          onOpenCommentModal={setCommentModalTarget}
+          activePerspective={activePerspective}
         />
       </main>
 
       <footer className="legend-bar">
         <strong>Legend</strong>
-        {Object.values(edgeStyle).map((item) => (
+        {Object.entries(edgeStyle)
+          .filter(([key]) => key !== 'feedback')
+          .map(([, item]) => (
           <div key={item.label} className="legend-row horizontal">
             <i style={{ background: item.color }} />
             <span>{item.label}</span>
           </div>
         ))}
-        {Object.values(groupMeta).map((item) => (
-          <div key={item.label} className="legend-row horizontal">
-            <i style={{ background: item.fill, border: `1px solid ${item.stroke}` }} />
-            <span>{item.label}</span>
-          </div>
-        ))}
       </footer>
+        </>
+      )}
+      </div>
+
+      <CommentModal
+        open={!!commentModalTarget}
+        onClose={() => setCommentModalTarget(null)}
+        selectedTarget={commentModalTarget || { type: 'node', id: '' }}
+        email={email}
+        setEmail={setEmail}
+        onSaved={refreshComments}
+      />
     </div>
   )
 }

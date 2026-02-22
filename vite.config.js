@@ -1,6 +1,83 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const DB_FILE = path.resolve(process.cwd(), 'comments_db.csv')
+const CSV_HEADERS = [
+  'id',
+  'targetType',
+  'targetId',
+  'stakeholderCategory',
+  'noteText',
+  'emailHash',
+  'timestamp',
+  'displayName',
+  'parentId',
+]
+
+const escapeCsv = (value) => {
+  const text = String(value ?? '')
+  if (/[,"\n]/.test(text)) {
+    return `"${text.replaceAll('"', '""')}"`
+  }
+  return text
+}
+
+const parseCsvLine = (line) => {
+  const values = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (ch === ',' && !inQuotes) {
+      values.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  values.push(current)
+  return values
+}
+
+const readDb = () => {
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, `${CSV_HEADERS.join(',')}\n`, 'utf8')
+    return []
+  }
+
+  const raw = fs.readFileSync(DB_FILE, 'utf8').trim()
+  if (!raw) return []
+  const lines = raw.split('\n')
+  if (lines.length <= 1) return []
+
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line)
+    const obj = {}
+    CSV_HEADERS.forEach((key, index) => {
+      obj[key] = values[index] || ''
+    })
+    return obj
+  })
+}
+
+const writeDb = (comments) => {
+  const rows = [CSV_HEADERS.join(',')]
+  comments.forEach((comment) => {
+    rows.push(CSV_HEADERS.map((header) => escapeCsv(comment[header] || '')).join(','))
+  })
+  fs.writeFileSync(DB_FILE, `${rows.join('\n')}\n`, 'utf8')
+}
 
 const redact = (comment) => ({
   id: comment.id,
@@ -8,14 +85,13 @@ const redact = (comment) => ({
   targetId: comment.targetId,
   stakeholderCategory: comment.stakeholderCategory,
   noteText: comment.noteText,
-  contactInfo: comment.contactInfo,
   timestamp: comment.timestamp,
   displayName: comment.displayName,
   parentId: comment.parentId,
 })
 
 const commentApiPlugin = () => {
-  const comments = []
+  let comments = readDb()
 
   const parseBody = (req) => new Promise((resolve) => {
     let body = ''
@@ -39,6 +115,8 @@ const commentApiPlugin = () => {
           return next()
         }
 
+        comments = readDb()
+
         const url = new URL(req.url, 'http://localhost')
         const [, , commentId] = url.pathname.split('/')
 
@@ -50,6 +128,7 @@ const commentApiPlugin = () => {
             if (targetId && comment.targetId !== targetId) return false
             return true
           })
+          filtered.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(filtered.map(redact)))
           return
@@ -62,7 +141,7 @@ const commentApiPlugin = () => {
             body.targetId,
             body.stakeholderCategory,
             body.noteText,
-            body.privateUserIdentifier,
+            body.displayName,
           ]
 
           if (required.some((value) => !value)) {
@@ -77,13 +156,14 @@ const commentApiPlugin = () => {
             targetId: body.targetId,
             stakeholderCategory: body.stakeholderCategory,
             noteText: body.noteText,
-            contactInfo: body.contactInfo || '',
-            privateUserIdentifier: body.privateUserIdentifier,
+            emailHash: body.emailHash || '',
             timestamp: new Date().toISOString(),
-            displayName: body.displayName || 'User Comment',
+            displayName: body.displayName,
             parentId: body.parentId || '',
           }
-          comments.unshift(comment)
+
+          comments.push(comment)
+          writeDb(comments)
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(redact(comment)))
           return
@@ -98,7 +178,7 @@ const commentApiPlugin = () => {
             res.end('Comment not found')
             return
           }
-          if (!userHash || userHash !== comment.privateUserIdentifier) {
+          if (!userHash || userHash !== comment.emailHash) {
             res.statusCode = 403
             res.end('Not authorized')
             return
@@ -106,6 +186,7 @@ const commentApiPlugin = () => {
 
           comment.noteText = body.noteText || comment.noteText
           comment.timestamp = new Date().toISOString()
+          writeDb(comments)
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(redact(comment)))
           return
@@ -120,7 +201,7 @@ const commentApiPlugin = () => {
             return
           }
           const target = comments[commentIndex]
-          if (!userHash || userHash !== target.privateUserIdentifier) {
+          if (!userHash || userHash !== target.emailHash) {
             res.statusCode = 403
             res.end('Not authorized')
             return
@@ -131,9 +212,8 @@ const commentApiPlugin = () => {
             if (item.parentId === target.id) idsToDelete.add(item.id)
           })
 
-          for (let i = comments.length - 1; i >= 0; i -= 1) {
-            if (idsToDelete.has(comments[i].id)) comments.splice(i, 1)
-          }
+          comments = comments.filter((item) => !idsToDelete.has(item.id))
+          writeDb(comments)
 
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ ok: true }))
