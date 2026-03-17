@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import DOMPurify from 'isomorphic-dompurify'
-import { supabaseAdmin } from '../../lib/supabase-admin'
+import { getSupabaseAdmin } from '../../lib/supabase-admin'
 
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 const allowedTargetTypes = new Set(['node', 'edge'])
@@ -104,6 +104,7 @@ export const sendMethodNotAllowed = (res: any, allowed: string[]) => {
 export const listComments = async (req: any, res: any) => {
   const targetType = cleanText(req.query.targetType, 16)
   const targetId = cleanText(req.query.targetId, 128)
+  const supabaseAdmin = getSupabaseAdmin()
 
   let query = supabaseAdmin
     .from('comments')
@@ -125,6 +126,7 @@ export const listComments = async (req: any, res: any) => {
 export const createComment = async (req: any, res: any) => {
   const body = parseBody(req)
   const validated = validateCreate(body)
+  const supabaseAdmin = getSupabaseAdmin()
 
   if (typeof validated === 'string') {
     json(res, 400, { error: validated })
@@ -191,6 +193,7 @@ export const updateComment = async (req: any, res: any, id: string) => {
   const ownerHash = cleanText(req.headers['x-user-hash'], 128)
   const body = parseBody(req)
   const noteText = sanitizeText(body.noteText, 4000)
+  const supabaseAdmin = getSupabaseAdmin()
 
   if (!id) {
     json(res, 400, { error: 'Missing comment id.' })
@@ -226,6 +229,7 @@ export const updateComment = async (req: any, res: any, id: string) => {
 
 export const deleteComment = async (req: any, res: any, id: string) => {
   const ownerHash = cleanText(req.headers['x-user-hash'], 128)
+  const supabaseAdmin = getSupabaseAdmin()
 
   if (!id) {
     json(res, 400, { error: 'Missing comment id.' })
