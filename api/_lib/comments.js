@@ -1,25 +1,23 @@
 import crypto from 'node:crypto'
-import DOMPurify from 'isomorphic-dompurify'
-import { getSupabaseAdmin } from '../../lib/supabase-admin'
+import { getSupabaseAdmin } from '../../lib/supabase-admin.js'
 
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 const allowedTargetTypes = new Set(['node', 'edge'])
 
-const cleanText = (value: unknown, maxLength: number) => String(value || '').trim().slice(0, maxLength)
+const cleanText = (value, maxLength) => String(value || '').trim().slice(0, maxLength)
 
-const sanitizeText = (value: unknown, maxLength: number) => {
-  const clean = DOMPurify.sanitize(cleanText(value, maxLength), {
-    ALLOWED_TAGS: [],
-    ALLOWED_ATTR: [],
-  }).trim()
+const stripTags = (value) => value.replace(/<[^>]*>/g, ' ')
+
+const sanitizeText = (value, maxLength) => {
+  const clean = stripTags(cleanText(value, maxLength)).trim()
   return clean.replace(/\s+/g, ' ')
 }
 
-const json = (res: any, status: number, payload: unknown) => {
+const json = (res, status, payload) => {
   res.status(status).json(payload)
 }
 
-const redactComment = (row: Record<string, unknown>) => ({
+const redactComment = (row) => ({
   id: row.id,
   targetType: row.target_type,
   targetId: row.target_id,
@@ -30,7 +28,7 @@ const redactComment = (row: Record<string, unknown>) => ({
   parentId: row.parent_id || '',
 })
 
-const parseBody = (req: any) => {
+const parseBody = (req) => {
   if (!req.body) return {}
   if (typeof req.body === 'string') {
     try {
@@ -42,7 +40,7 @@ const parseBody = (req: any) => {
   return req.body
 }
 
-const validateCreate = (body: Record<string, unknown>) => {
+const validateCreate = (body) => {
   const targetType = cleanText(body.targetType, 16)
   const targetId = cleanText(body.targetId, 128)
   const stakeholderCategory = sanitizeText(body.stakeholderCategory, 160)
@@ -76,7 +74,7 @@ const validateCreate = (body: Record<string, unknown>) => {
   }
 }
 
-const verifyCaptcha = async (token: string, remoteIp: string | null) => {
+const verifyCaptcha = async (token, remoteIp) => {
   const secret = process.env.TURNSTILE_SECRET_KEY
   if (!secret) throw new Error('Missing TURNSTILE_SECRET_KEY.')
 
@@ -96,12 +94,12 @@ const verifyCaptcha = async (token: string, remoteIp: string | null) => {
   return Boolean(result.success)
 }
 
-export const sendMethodNotAllowed = (res: any, allowed: string[]) => {
+export const sendMethodNotAllowed = (res, allowed) => {
   res.setHeader('Allow', allowed.join(', '))
   json(res, 405, { error: 'Method not allowed.' })
 }
 
-export const listComments = async (req: any, res: any) => {
+export const listComments = async (req, res) => {
   const targetType = cleanText(req.query.targetType, 16)
   const targetId = cleanText(req.query.targetId, 128)
   const supabaseAdmin = getSupabaseAdmin()
@@ -123,7 +121,7 @@ export const listComments = async (req: any, res: any) => {
   json(res, 200, (data || []).map(redactComment))
 }
 
-export const createComment = async (req: any, res: any) => {
+export const createComment = async (req, res) => {
   const body = parseBody(req)
   const validated = validateCreate(body)
   const supabaseAdmin = getSupabaseAdmin()
@@ -186,10 +184,10 @@ export const createComment = async (req: any, res: any) => {
     return
   }
 
-  json(res, 201, redactComment(data as Record<string, unknown>))
+  json(res, 201, redactComment(data))
 }
 
-export const updateComment = async (req: any, res: any, id: string) => {
+export const updateComment = async (req, res, id) => {
   const ownerHash = cleanText(req.headers['x-user-hash'], 128)
   const body = parseBody(req)
   const noteText = sanitizeText(body.noteText, 4000)
@@ -224,10 +222,10 @@ export const updateComment = async (req: any, res: any, id: string) => {
     return
   }
 
-  json(res, 200, redactComment(data as Record<string, unknown>))
+  json(res, 200, redactComment(data))
 }
 
-export const deleteComment = async (req: any, res: any, id: string) => {
+export const deleteComment = async (req, res, id) => {
   const ownerHash = cleanText(req.headers['x-user-hash'], 128)
   const supabaseAdmin = getSupabaseAdmin()
 

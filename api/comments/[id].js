@@ -2,9 +2,13 @@ import {
   deleteComment,
   sendMethodNotAllowed,
   updateComment,
-} from '../_lib/comments'
+} from '../_lib/comments.js'
 
-export default async function handler(req: any, res: any) {
+export const config = {
+  runtime: 'nodejs',
+}
+
+export default async function handler(req, res) {
   const id = String(req.query.id || '')
 
   try {
