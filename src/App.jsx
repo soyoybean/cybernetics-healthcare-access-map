@@ -15,6 +15,8 @@ const NODE_WIDTH = 210
 const NODE_HEIGHT = 62
 const ANALYTICS_ID = 'G-Y4529MYHJS'
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
+const TURNSTILE_SITE_KEY_FALLBACK = '0x4AAAAAACsKbNwaJ2tA1nZ3'
+const ACTIVE_TURNSTILE_SITE_KEY = TURNSTILE_SITE_KEY || TURNSTILE_SITE_KEY_FALLBACK
 
 const initAnalytics = () => {
   if (window.__healthcareAccessMapGaInitialized) return
@@ -406,13 +408,13 @@ const TurnstileField = memo(function TurnstileField({
   const widgetIdRef = useRef(null)
 
   useEffect(() => {
-    if (!TURNSTILE_SITE_KEY) return undefined
+    if (!ACTIVE_TURNSTILE_SITE_KEY) return undefined
 
     let cancelled = false
     const renderWidget = () => {
       if (cancelled || !containerRef.current || !window.turnstile || widgetIdRef.current !== null) return
       widgetIdRef.current = window.turnstile.render(containerRef.current, {
-        sitekey: TURNSTILE_SITE_KEY,
+        sitekey: ACTIVE_TURNSTILE_SITE_KEY,
         callback: onVerify,
         'expired-callback': onExpire,
         'error-callback': onExpire,
@@ -457,7 +459,7 @@ const TurnstileField = memo(function TurnstileField({
     }
   }, [resetKey])
 
-  if (!TURNSTILE_SITE_KEY) {
+  if (!ACTIVE_TURNSTILE_SITE_KEY) {
     return <p className="micro form-warning">CAPTCHA is unavailable until `VITE_TURNSTILE_SITE_KEY` is configured.</p>
   }
 
