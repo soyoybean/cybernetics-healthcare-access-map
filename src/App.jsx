@@ -13,6 +13,25 @@ const BASE_HEIGHT = 1220
 const SCALE_FACTOR = 1.35
 const NODE_WIDTH = 210
 const NODE_HEIGHT = 62
+const ANALYTICS_ID = 'G-Y4529MYHJS'
+const ANALYTICS_CONSENT_KEY = 'healthcare-access-map-analytics-consent'
+
+const initAnalytics = () => {
+  if (window.__healthcareAccessMapGaInitialized) return
+
+  const script = document.createElement('script')
+  script.async = true
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${ANALYTICS_ID}`
+  document.head.appendChild(script)
+
+  window.dataLayer = window.dataLayer || []
+  window.gtag = function gtag() {
+    window.dataLayer.push(arguments)
+  }
+  window.gtag('js', new Date())
+  window.gtag('config', ANALYTICS_ID)
+  window.__healthcareAccessMapGaInitialized = true
+}
 
 const groupMeta = {
   companies: { label: 'Assistive Tech Companies', fill: '#e8f1ff', stroke: '#2e6fae' },
@@ -629,6 +648,26 @@ const CommentModal = memo(function CommentModal({
   )
 })
 
+const AnalyticsConsentBanner = memo(function AnalyticsConsentBanner({
+  onAccept,
+  onDecline,
+}) {
+  return (
+    <aside className="analytics-banner" role="dialog" aria-live="polite" aria-label="Analytics consent">
+      <div className="analytics-copy">
+        <strong>Analytics Consent</strong>
+        <p>
+          This site can use Google Analytics to understand usage patterns. Analytics loads only if you accept.
+        </p>
+      </div>
+      <div className="analytics-actions">
+        <button type="button" className="secondary" onClick={onDecline}>Decline</button>
+        <button type="button" onClick={onAccept}>Accept analytics</button>
+      </div>
+    </aside>
+  )
+})
+
 const RightPanel = memo(function RightPanel({
   open,
   onClose,
@@ -1119,6 +1158,7 @@ function App() {
   const [comments, setComments] = useState([])
   const [email, setEmail] = useState('')
   const [commentModalTarget, setCommentModalTarget] = useState(null)
+  const [analyticsConsent, setAnalyticsConsent] = useState('pending')
   const [onboardingVisible, setOnboardingVisible] = useState(false)
 
   const [isMobile, setIsMobile] = useState(isSmallScreen())
@@ -1336,6 +1376,20 @@ function App() {
 
   useEffect(() => {
     document.title = 'Access to U.S. Healthcare System'
+  }, [])
+
+  useEffect(() => {
+    const storedConsent = window.localStorage.getItem(ANALYTICS_CONSENT_KEY)
+    if (storedConsent === 'accepted') {
+      setAnalyticsConsent('accepted')
+      initAnalytics()
+      return
+    }
+    if (storedConsent === 'declined') {
+      setAnalyticsConsent('declined')
+      return
+    }
+    setAnalyticsConsent('pending')
   }, [])
 
   useEffect(() => {
@@ -1850,6 +1904,19 @@ function App() {
         setEmail={setEmail}
         onSaved={refreshComments}
       />
+      {analyticsConsent === 'pending' && (
+        <AnalyticsConsentBanner
+          onAccept={() => {
+            window.localStorage.setItem(ANALYTICS_CONSENT_KEY, 'accepted')
+            setAnalyticsConsent('accepted')
+            initAnalytics()
+          }}
+          onDecline={() => {
+            window.localStorage.setItem(ANALYTICS_CONSENT_KEY, 'declined')
+            setAnalyticsConsent('declined')
+          }}
+        />
+      )}
     </div>
   )
 }
