@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '../../lib/supabase-admin.js'
 
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 const allowedTargetTypes = new Set(['node', 'edge'])
+const COMMENTS_TABLE = 'visitor comments'
 const buildPagePath = (targetType, targetId) => `${targetType}:${targetId}`
 
 const cleanText = (value, maxLength) => String(value || '').trim().slice(0, maxLength)
@@ -129,7 +130,7 @@ export const listComments = async (req, res) => {
   const supabaseAdmin = getSupabaseAdmin()
 
   let query = supabaseAdmin
-    .from('comments')
+    .from(COMMENTS_TABLE)
     .select('id,display_name,stakeholder,specific_identity,note,email,created_at,page_path')
     .order('created_at', { ascending: true })
 
@@ -181,7 +182,7 @@ export const createComment = async (req, res) => {
   }
 
   const { data, error } = await supabaseAdmin
-    .from('comments')
+    .from(COMMENTS_TABLE)
     .insert(payload)
     .select('id,display_name,stakeholder,specific_identity,note,email,created_at,page_path')
     .single()
@@ -215,7 +216,7 @@ export const updateComment = async (req, res, id) => {
   }
 
   const { data, error } = await supabaseAdmin
-    .from('comments')
+    .from(COMMENTS_TABLE)
     .update({
       note: noteText,
     })
@@ -251,7 +252,7 @@ export const deleteComment = async (req, res, id) => {
   }
 
   const { data, error } = await supabaseAdmin
-    .from('comments')
+    .from(COMMENTS_TABLE)
     .delete()
     .eq('id', id)
     .eq('email', ownerIdentity)
