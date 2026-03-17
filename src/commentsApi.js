@@ -9,16 +9,16 @@ export const hashIdentifier = async (identifier) => {
   return toHex(digest)
 }
 
-const getOwnerHash = async (email) => {
+const getOwnerToken = async (email) => {
   if (email?.trim()) {
-    return hashIdentifier(email)
+    return email.trim().toLowerCase()
   }
   let anonOwnerKey = localStorage.getItem('health-map-anon-owner-key')
   if (!anonOwnerKey) {
     anonOwnerKey = crypto.randomUUID()
     localStorage.setItem('health-map-anon-owner-key', anonOwnerKey)
   }
-  return hashIdentifier(anonOwnerKey)
+  return `anon:${await hashIdentifier(anonOwnerKey)}`
 }
 
 const asJson = async (response) => {
@@ -53,7 +53,7 @@ export const createComment = async ({
   parentId,
   captchaToken,
 }) => {
-  const emailHash = await getOwnerHash(email)
+  const ownerToken = await getOwnerToken(email)
   const response = await fetch(API_BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -63,9 +63,8 @@ export const createComment = async ({
       stakeholderCategory,
       stakeholderDetail,
       noteText,
-      emailHash,
+      email: ownerToken,
       displayName,
-      parentId,
       captchaToken,
     }),
   })
@@ -79,12 +78,12 @@ export const createComment = async ({
 }
 
 export const updateComment = async ({ id, noteText, email }) => {
-  const emailHash = await getOwnerHash(email)
+  const ownerToken = await getOwnerToken(email)
   const response = await fetch(`${API_BASE}/${id}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-hash': emailHash,
+      'x-user-identity': ownerToken,
     },
     body: JSON.stringify({ noteText }),
   })
@@ -92,10 +91,10 @@ export const updateComment = async ({ id, noteText, email }) => {
 }
 
 export const deleteComment = async ({ id, email }) => {
-  const emailHash = await getOwnerHash(email)
+  const ownerToken = await getOwnerToken(email)
   const response = await fetch(`${API_BASE}/${id}`, {
     method: 'DELETE',
-    headers: { 'x-user-hash': emailHash },
+    headers: { 'x-user-identity': ownerToken },
   })
   return asJson(response)
 }

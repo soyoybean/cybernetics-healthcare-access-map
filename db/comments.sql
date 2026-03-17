@@ -1,15 +1,13 @@
 CREATE TABLE IF NOT EXISTS comments (
   id UUID PRIMARY KEY,
-  target_type TEXT NOT NULL CHECK (target_type IN ('node', 'edge')),
-  target_id TEXT NOT NULL,
-  stakeholder_category TEXT NOT NULL,
-  stakeholder_detail TEXT,
-  note_text TEXT NOT NULL,
-  email_hash TEXT NOT NULL,
   display_name TEXT NOT NULL,
-  parent_id UUID REFERENCES comments(id) ON DELETE CASCADE,
-  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  stakeholder TEXT NOT NULL,
+  specific_identity TEXT,
+  note TEXT NOT NULL,
+  email TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  page_path TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS comments_target_idx
-ON comments (target_type, target_id, timestamp);
+CREATE INDEX IF NOT EXISTS comments_page_path_idx
+ON comments (page_path, created_at);

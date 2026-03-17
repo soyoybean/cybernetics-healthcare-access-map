@@ -11,7 +11,10 @@ Deployment notes:
 - Set `SUPABASE_SERVICE_ROLE_KEY` in the server environment.
 - Set `TURNSTILE_SECRET_KEY` in the server environment.
 - Set `VITE_TURNSTILE_SITE_KEY` in the frontend environment.
-- The checked-in schema is also available at `db/comments.sql`, including the private `stakeholder_detail` column that is not returned to the public UI.
+- The checked-in schema is also available at `db/comments.sql`.
+- Comments are stored in the current Supabase table columns: `display_name`, `stakeholder`, `specific_identity`, `note`, `email`, `created_at`, and `page_path`.
+- `page_path` stores the selected graph target as `node:<id>` or `edge:<id>`.
+- `specific_identity` and `email` are stored privately and are not returned to the public UI.
 - The old local CSV file (`comments_db.csv`) is no longer used by the app runtime.
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

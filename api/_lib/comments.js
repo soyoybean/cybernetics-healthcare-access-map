@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '../../lib/supabase-admin.js'
 
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 const allowedTargetTypes = new Set(['node', 'edge'])
+const buildPagePath = (targetType, targetId) => `${targetType}:${targetId}`
 
 const cleanText = (value, maxLength) => String(value || '').trim().slice(0, maxLength)
 
@@ -17,16 +18,40 @@ const json = (res, status, payload) => {
   res.status(status).json(payload)
 }
 
-const redactComment = (row) => ({
-  id: row.id,
-  targetType: row.target_type,
-  targetId: row.target_id,
-  stakeholderCategory: row.stakeholder_category,
-  noteText: row.note_text,
-  timestamp: row.timestamp,
-  displayName: row.display_name,
-  parentId: row.parent_id || '',
-})
+const formatDbError = (prefix, error) => {
+  const parts = [prefix]
+  if (error?.message) parts.push(error.message)
+  if (error?.details) parts.push(error.details)
+  if (error?.hint) parts.push(error.hint)
+  return parts.join(' ')
+}
+
+const parsePagePath = (pagePath) => {
+  const raw = cleanText(pagePath, 256)
+  const splitIndex = raw.indexOf(':')
+  if (splitIndex === -1) {
+    return { targetType: 'node', targetId: raw }
+  }
+  return {
+    targetType: raw.slice(0, splitIndex),
+    targetId: raw.slice(splitIndex + 1),
+  }
+}
+
+const redactComment = (row) => {
+  const target = parsePagePath(row.page_path)
+  return {
+    id: row.id,
+    targetType: target.targetType,
+    targetId: target.targetId,
+    stakeholderCategory: row.stakeholder,
+    noteText: row.note,
+    timestamp: row.created_at,
+    displayName: row.display_name,
+    parentId: '',
+    pagePath: row.page_path,
+  }
+}
 
 const parseBody = (req) => {
   if (!req.body) return {}
@@ -47,9 +72,8 @@ const validateCreate = (body) => {
   const stakeholderDetail = sanitizeText(body.stakeholderDetail, 240)
   const noteText = sanitizeText(body.noteText, 4000)
   const displayName = sanitizeText(body.displayName, 120)
-  const emailHash = cleanText(body.emailHash, 128)
+  const email = cleanText(body.email, 320)
   const captchaToken = cleanText(body.captchaToken, 2048)
-  const parentId = cleanText(body.parentId, 64) || null
 
   if (!allowedTargetTypes.has(targetType)) return 'Invalid targetType.'
   if (!targetId) return 'Missing targetId.'
@@ -57,7 +81,7 @@ const validateCreate = (body) => {
   if (!noteText || noteText.length < 3) return 'Comment is too short.'
   if (noteText.length > 2000) return 'Comment is too long.'
   if (!displayName) return 'Missing displayName.'
-  if (!emailHash) return 'Missing owner identity.'
+  if (!email) return 'Missing owner identity.'
   if (!captchaToken) return 'Missing CAPTCHA token.'
 
   return {
@@ -68,9 +92,8 @@ const validateCreate = (body) => {
     stakeholderDetail,
     noteText,
     displayName,
-    emailHash,
+    email,
     captchaToken,
-    parentId,
   }
 }
 
@@ -102,19 +125,20 @@ export const sendMethodNotAllowed = (res, allowed) => {
 export const listComments = async (req, res) => {
   const targetType = cleanText(req.query.targetType, 16)
   const targetId = cleanText(req.query.targetId, 128)
+  const pagePath = targetType && targetId ? buildPagePath(targetType, targetId) : ''
   const supabaseAdmin = getSupabaseAdmin()
 
   let query = supabaseAdmin
     .from('comments')
-    .select('id,target_type,target_id,stakeholder_category,note_text,display_name,parent_id,timestamp')
-    .order('timestamp', { ascending: true })
+    .select('id,display_name,stakeholder,specific_identity,note,email,created_at,page_path')
+    .order('created_at', { ascending: true })
 
-  if (targetType) query = query.eq('target_type', targetType)
-  if (targetId) query = query.eq('target_id', targetId)
+  if (pagePath) query = query.eq('page_path', pagePath)
 
   const { data, error } = await query.limit(1000)
   if (error) {
-    json(res, 500, { error: 'Failed to load comments.' })
+    console.error(error)
+    json(res, 500, { error: formatDbError('Failed to load comments.', error) })
     return
   }
 
@@ -146,41 +170,25 @@ export const createComment = async (req, res) => {
     return
   }
 
-  if (validated.parentId) {
-    const { data: parent, error: parentError } = await supabaseAdmin
-      .from('comments')
-      .select('id')
-      .eq('id', validated.parentId)
-      .maybeSingle()
-
-    if (parentError || !parent) {
-      json(res, 400, { error: 'Invalid parentId.' })
-      return
-    }
-  }
-
   const payload = {
     id: validated.id,
-    target_type: validated.targetType,
-    target_id: validated.targetId,
-    stakeholder_category: validated.stakeholderCategory,
-    stakeholder_detail: validated.stakeholderDetail || null,
-    note_text: validated.noteText,
-    email_hash: validated.emailHash,
     display_name: validated.displayName,
-    parent_id: validated.parentId,
-    timestamp: new Date().toISOString(),
+    stakeholder: validated.stakeholderCategory,
+    specific_identity: validated.stakeholderDetail || null,
+    note: validated.noteText,
+    email: validated.email,
+    page_path: buildPagePath(validated.targetType, validated.targetId),
   }
 
   const { data, error } = await supabaseAdmin
     .from('comments')
     .insert(payload)
-    .select('id,target_type,target_id,stakeholder_category,note_text,display_name,parent_id,timestamp')
+    .select('id,display_name,stakeholder,specific_identity,note,email,created_at,page_path')
     .single()
 
   if (error) {
     console.error(error)
-    json(res, 500, { error: 'Failed to save comment.' })
+    json(res, 500, { error: formatDbError('Failed to save comment.', error) })
     return
   }
 
@@ -188,7 +196,7 @@ export const createComment = async (req, res) => {
 }
 
 export const updateComment = async (req, res, id) => {
-  const ownerHash = cleanText(req.headers['x-user-hash'], 128)
+  const ownerIdentity = cleanText(req.headers['x-user-identity'], 320)
   const body = parseBody(req)
   const noteText = sanitizeText(body.noteText, 4000)
   const supabaseAdmin = getSupabaseAdmin()
@@ -197,7 +205,7 @@ export const updateComment = async (req, res, id) => {
     json(res, 400, { error: 'Missing comment id.' })
     return
   }
-  if (!ownerHash) {
+  if (!ownerIdentity) {
     json(res, 403, { error: 'Missing owner identity.' })
     return
   }
@@ -209,15 +217,19 @@ export const updateComment = async (req, res, id) => {
   const { data, error } = await supabaseAdmin
     .from('comments')
     .update({
-      note_text: noteText,
-      timestamp: new Date().toISOString(),
+      note: noteText,
     })
     .eq('id', id)
-    .eq('email_hash', ownerHash)
-    .select('id,target_type,target_id,stakeholder_category,note_text,display_name,parent_id,timestamp')
+    .eq('email', ownerIdentity)
+    .select('id,display_name,stakeholder,specific_identity,note,email,created_at,page_path')
     .maybeSingle()
 
   if (error || !data) {
+    if (error) {
+      console.error(error)
+      json(res, 500, { error: formatDbError('Failed to update comment.', error) })
+      return
+    }
     json(res, 404, { error: 'Comment not found or not authorized.' })
     return
   }
@@ -226,14 +238,14 @@ export const updateComment = async (req, res, id) => {
 }
 
 export const deleteComment = async (req, res, id) => {
-  const ownerHash = cleanText(req.headers['x-user-hash'], 128)
+  const ownerIdentity = cleanText(req.headers['x-user-identity'], 320)
   const supabaseAdmin = getSupabaseAdmin()
 
   if (!id) {
     json(res, 400, { error: 'Missing comment id.' })
     return
   }
-  if (!ownerHash) {
+  if (!ownerIdentity) {
     json(res, 403, { error: 'Missing owner identity.' })
     return
   }
@@ -242,11 +254,16 @@ export const deleteComment = async (req, res, id) => {
     .from('comments')
     .delete()
     .eq('id', id)
-    .eq('email_hash', ownerHash)
+    .eq('email', ownerIdentity)
     .select('id')
     .maybeSingle()
 
   if (error || !data) {
+    if (error) {
+      console.error(error)
+      json(res, 500, { error: formatDbError('Failed to delete comment.', error) })
+      return
+    }
     json(res, 404, { error: 'Comment not found or not authorized.' })
     return
   }
