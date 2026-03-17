@@ -14,7 +14,6 @@ const SCALE_FACTOR = 1.35
 const NODE_WIDTH = 210
 const NODE_HEIGHT = 62
 const ANALYTICS_ID = 'G-Y4529MYHJS'
-const ANALYTICS_CONSENT_KEY = 'healthcare-access-map-analytics-consent'
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
 
 const initAnalytics = () => {
@@ -1519,16 +1518,6 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const storedConsent = window.localStorage.getItem(ANALYTICS_CONSENT_KEY)
-    if (storedConsent === 'accepted') {
-      setAnalyticsConsent('accepted')
-      initAnalytics()
-      return
-    }
-    if (storedConsent === 'declined') {
-      setAnalyticsConsent('declined')
-      return
-    }
     setAnalyticsConsent('pending')
   }, [])
 
@@ -2047,12 +2036,10 @@ function App() {
       {analyticsConsent === 'pending' && (
         <AnalyticsConsentBanner
           onAccept={() => {
-            window.localStorage.setItem(ANALYTICS_CONSENT_KEY, 'accepted')
             setAnalyticsConsent('accepted')
             initAnalytics()
           }}
           onDecline={() => {
-            window.localStorage.setItem(ANALYTICS_CONSENT_KEY, 'declined')
             setAnalyticsConsent('declined')
           }}
         />
