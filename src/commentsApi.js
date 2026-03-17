@@ -29,6 +29,11 @@ const asJson = async (response) => {
   return response.json()
 }
 
+const trackCommentSubmitted = (payload) => {
+  if (typeof window === 'undefined' || typeof window.gtag !== 'function') return
+  window.gtag('event', 'comment_submitted', payload)
+}
+
 export const fetchComments = async (targetType, targetId) => {
   const query = new URLSearchParams()
   if (targetType) query.set('targetType', targetType)
@@ -45,6 +50,7 @@ export const createComment = async ({
   email,
   displayName,
   parentId,
+  captchaToken,
 }) => {
   const emailHash = await getOwnerHash(email)
   const response = await fetch(API_BASE, {
@@ -58,9 +64,16 @@ export const createComment = async ({
       emailHash,
       displayName,
       parentId,
+      captchaToken,
     }),
   })
-  return asJson(response)
+  const data = await asJson(response)
+  trackCommentSubmitted({
+    target_type: targetType,
+    target_id: targetId,
+    stakeholder_category: stakeholderCategory,
+  })
+  return data
 }
 
 export const updateComment = async ({ id, noteText, email }) => {

@@ -15,6 +15,7 @@ const NODE_WIDTH = 210
 const NODE_HEIGHT = 62
 const ANALYTICS_ID = 'G-Y4529MYHJS'
 const ANALYTICS_CONSENT_KEY = 'healthcare-access-map-analytics-consent'
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
 
 const initAnalytics = () => {
   if (window.__healthcareAccessMapGaInitialized) return
@@ -137,6 +138,14 @@ const rawLinks = [
 ]
 
 const links = rawLinks.map((link, index) => ({ ...link, id: `link-${index}` }))
+const stakeholderOptions = [...new Set(nodes.map((node) => node.label))]
+
+const composeStakeholderValue = (stakeholder, detail) => {
+  const cleanStakeholder = String(stakeholder || '').trim()
+  const cleanDetail = String(detail || '').trim()
+  if (!cleanDetail) return cleanStakeholder
+  return `${cleanStakeholder} - ${cleanDetail}`
+}
 
 const PERSPECTIVES = {
   community: {
@@ -396,6 +405,73 @@ const ExploreStories = memo(function ExploreStories({
   )
 })
 
+const TurnstileField = memo(function TurnstileField({
+  onVerify,
+  onExpire,
+  resetKey,
+}) {
+  const containerRef = useRef(null)
+  const widgetIdRef = useRef(null)
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return undefined
+
+    let cancelled = false
+    const renderWidget = () => {
+      if (cancelled || !containerRef.current || !window.turnstile || widgetIdRef.current !== null) return
+      widgetIdRef.current = window.turnstile.render(containerRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        callback: onVerify,
+        'expired-callback': onExpire,
+        'error-callback': onExpire,
+      })
+    }
+
+    if (window.turnstile) {
+      renderWidget()
+    } else {
+      const existing = document.querySelector('script[data-turnstile="true"]')
+      if (!existing) {
+        const script = document.createElement('script')
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+        script.async = true
+        script.defer = true
+        script.dataset.turnstile = 'true'
+        script.onload = renderWidget
+        document.head.appendChild(script)
+      } else {
+        existing.addEventListener('load', renderWidget, { once: true })
+      }
+      const poll = window.setInterval(() => {
+        if (window.turnstile) {
+          window.clearInterval(poll)
+          renderWidget()
+        }
+      }, 250)
+      return () => {
+        cancelled = true
+        window.clearInterval(poll)
+      }
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [onExpire, onVerify])
+
+  useEffect(() => {
+    if (widgetIdRef.current !== null && window.turnstile) {
+      window.turnstile.reset(widgetIdRef.current)
+    }
+  }, [resetKey])
+
+  if (!TURNSTILE_SITE_KEY) {
+    return <p className="micro form-warning">CAPTCHA is unavailable until `VITE_TURNSTILE_SITE_KEY` is configured.</p>
+  }
+
+  return <div className="turnstile-slot" ref={containerRef} />
+})
+
 const CommentsPanel = memo(function CommentsPanel({
   selectedTarget,
   comments,
@@ -408,10 +484,14 @@ const CommentsPanel = memo(function CommentsPanel({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [displayName, setDisplayName] = useState('')
-  const [category, setCategory] = useState('')
-  const [otherCategory, setOtherCategory] = useState('')
+  const [stakeholder, setStakeholder] = useState('')
+  const [stakeholderDetail, setStakeholderDetail] = useState('')
   const [noteText, setNoteText] = useState('')
   const [replyTo, setReplyTo] = useState('')
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaResetKey, setCaptchaResetKey] = useState(0)
+  const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   const targetComments = useMemo(
     () =>
@@ -438,21 +518,30 @@ const CommentsPanel = memo(function CommentsPanel({
 
   const submit = async (event) => {
     event.preventDefault()
-    await createComment({
-      targetType: selectedTarget.type,
-      targetId: selectedTarget.id,
-      stakeholderCategory: category === 'Other' ? otherCategory || 'Other' : category,
-      noteText,
-      email,
-      displayName,
-      parentId: replyTo,
-    })
-    setDisplayName('')
-    setCategory('')
-    setOtherCategory('')
-    setNoteText('')
-    setReplyTo('')
-    await refresh()
+    setSubmitError('')
+    try {
+      await createComment({
+        targetType: selectedTarget.type,
+        targetId: selectedTarget.id,
+        stakeholderCategory: composeStakeholderValue(stakeholder, stakeholderDetail),
+        noteText,
+        email,
+        displayName,
+        parentId: replyTo,
+        captchaToken,
+      })
+      setDisplayName('')
+      setStakeholder('')
+      setStakeholderDetail('')
+      setNoteText('')
+      setReplyTo('')
+      setCaptchaToken('')
+      setCaptchaResetKey((value) => value + 1)
+      setSubmitted(true)
+      await refresh()
+    } catch (error) {
+      setSubmitError(error.message || 'Unable to submit comment.')
+    }
   }
 
   const editComment = async (comment) => {
@@ -485,6 +574,17 @@ const CommentsPanel = memo(function CommentsPanel({
       {expanded && (
         <>
           {showTarget && <p className="micro">Target: {selectedTarget.type} / {selectedTarget.id}</p>}
+          <p className="micro form-warning">
+            Privacy warning: do not include personal medical information. Comments may be visible to project reviewers.
+          </p>
+          {submitted && (
+            <div className="thank-you-card">
+              <h5>Thank you</h5>
+              <p>Your comment was submitted successfully.</p>
+              <button type="button" onClick={() => setSubmitted(false)}>Add another comment</button>
+            </div>
+          )}
+          {!submitted && (
           <form className="comment-form" onSubmit={submit}>
             <label>
               Display Name
@@ -497,28 +597,23 @@ const CommentsPanel = memo(function CommentsPanel({
             </label>
             <label>
               Who are you?
-              <select required value={category} onChange={(event) => setCategory(event.target.value)}>
-                <option value="" disabled>Select category</option>
-                <option>Assistive Tech Companies</option>
-                <option>Authorizers</option>
-                <option>Products & Services</option>
-                <option>Barriers</option>
-                <option>Community (People & Support)</option>
-                <option>Other</option>
+              <select required value={stakeholder} onChange={(event) => setStakeholder(event.target.value)}>
+                <option value="" disabled>Select stakeholder</option>
+                {stakeholderOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
               </select>
             </label>
-            {category === 'Other' && (
-              <label>
-                Other Category
-                <input value={otherCategory} onChange={(event) => setOtherCategory(event.target.value)} />
-              </label>
-            )}
+            <label>
+              Further specify who you are (optional)
+              <input value={stakeholderDetail} onChange={(event) => setStakeholderDetail(event.target.value)} />
+            </label>
             <label>
               Note
               <textarea rows={3} required value={noteText} onChange={(event) => setNoteText(event.target.value)} />
             </label>
             <label>
-              If you are interested in contributing to this healthcare access model or other projects, please share your email
+              If you are interested in contributing to this healthcare access model or other projects in healthcare and assistive technologies, feel free to share your email below.
               <input
                 type="email"
                 value={email}
@@ -526,9 +621,16 @@ const CommentsPanel = memo(function CommentsPanel({
                 placeholder="optional@email.com"
               />
             </label>
+            <TurnstileField
+              onVerify={setCaptchaToken}
+              onExpire={() => setCaptchaToken('')}
+              resetKey={captchaResetKey}
+            />
+            {submitError && <p className="micro form-error">{submitError}</p>}
             {replyTo && <p className="micro">Replying to {replyTo}</p>}
-            <button type="submit">Submit Comment</button>
+            <button type="submit" disabled={!captchaToken || !selectedTarget.id}>Submit Comment</button>
           </form>
+          )}
 
           <div className="comment-list">
             {topLevel.map((comment) => (
@@ -572,39 +674,72 @@ const CommentModal = memo(function CommentModal({
   onSaved,
 }) {
   const [displayName, setDisplayName] = useState('')
-  const [category, setCategory] = useState('')
-  const [otherCategory, setOtherCategory] = useState('')
+  const [stakeholder, setStakeholder] = useState('')
+  const [stakeholderDetail, setStakeholderDetail] = useState('')
   const [noteText, setNoteText] = useState('')
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaResetKey, setCaptchaResetKey] = useState(0)
+  const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   if (!open) return null
 
   const submit = async (event) => {
     event.preventDefault()
-    await createComment({
-      targetType: selectedTarget.type,
-      targetId: selectedTarget.id,
-      stakeholderCategory: category === 'Other' ? otherCategory || 'Other' : category,
-      noteText,
-      email,
-      displayName,
-      parentId: '',
-    })
-    setDisplayName('')
-    setCategory('')
-    setOtherCategory('')
-    setNoteText('')
-    await onSaved()
-    onClose()
+    setSubmitError('')
+    try {
+      await createComment({
+        targetType: selectedTarget.type,
+        targetId: selectedTarget.id,
+        stakeholderCategory: composeStakeholderValue(stakeholder, stakeholderDetail),
+        noteText,
+        email,
+        displayName,
+        parentId: '',
+        captchaToken,
+      })
+      setDisplayName('')
+      setStakeholder('')
+      setStakeholderDetail('')
+      setNoteText('')
+      setCaptchaToken('')
+      setCaptchaResetKey((value) => value + 1)
+      setSubmitted(true)
+      await onSaved()
+    } catch (error) {
+      setSubmitError(error.message || 'Unable to submit comment.')
+    }
   }
 
   return (
     <div className="comment-modal-backdrop" onClick={onClose}>
       <div className="comment-modal" onClick={(event) => event.stopPropagation()}>
         <div className="comment-modal-header">
-          <h3>Add Comment</h3>
+          <h3>{submitted ? 'Thank you' : 'Add Comment'}</h3>
           <button type="button" onClick={onClose}>X</button>
         </div>
         <p className="micro">Target: {selectedTarget.type} / {selectedTarget.id}</p>
+        {!submitted && (
+          <p className="micro form-warning">
+            Privacy warning: do not include personal medical information. Comments may be visible to project reviewers.
+          </p>
+        )}
+        {submitted ? (
+          <div className="thank-you-card">
+            <p>Your comment was submitted successfully.</p>
+            <div className="thank-you-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setSubmitted(false)
+                }}
+              >
+                Add another comment
+              </button>
+              <button type="button" onClick={onClose}>Close</button>
+            </div>
+          </div>
+        ) : (
         <form className="comment-form" onSubmit={submit}>
           <label>
             Display Name
@@ -612,28 +747,23 @@ const CommentModal = memo(function CommentModal({
           </label>
           <label>
             Who are you?
-            <select required value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option value="" disabled>Select category</option>
-              <option>Assistive Tech Companies</option>
-              <option>Authorizers</option>
-              <option>Products & Services</option>
-              <option>Barriers</option>
-              <option>Community (People & Support)</option>
-              <option>Other</option>
+            <select required value={stakeholder} onChange={(event) => setStakeholder(event.target.value)}>
+              <option value="" disabled>Select stakeholder</option>
+              {stakeholderOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
             </select>
           </label>
-          {category === 'Other' && (
-            <label>
-              Other Category
-              <input value={otherCategory} onChange={(event) => setOtherCategory(event.target.value)} />
-            </label>
-          )}
+          <label>
+            Further specify who you are (optional)
+            <input value={stakeholderDetail} onChange={(event) => setStakeholderDetail(event.target.value)} />
+          </label>
           <label>
             Note
             <textarea rows={3} required value={noteText} onChange={(event) => setNoteText(event.target.value)} />
           </label>
           <label>
-            If you are interested in contributing to this healthcare access model or other projects, please share your email
+            If you are interested in contributing to this healthcare access model or other projects in healthcare and assistive technologies, feel free to share your email below.
             <input
               type="email"
               value={email}
@@ -641,8 +771,15 @@ const CommentModal = memo(function CommentModal({
               placeholder="optional@email.com"
             />
           </label>
-          <button type="submit">Save Comment</button>
+          <TurnstileField
+            onVerify={setCaptchaToken}
+            onExpire={() => setCaptchaToken('')}
+            resetKey={captchaResetKey}
+          />
+          {submitError && <p className="micro form-error">{submitError}</p>}
+          <button type="submit" disabled={!captchaToken}>Save Comment</button>
         </form>
+        )}
       </div>
     </div>
   )
@@ -845,6 +982,9 @@ const RightPanel = memo(function RightPanel({
 
       {tab === 'Comments' && (
         <section className="structured-card">
+          <p className="micro form-warning">
+            Privacy warning: do not include personal medical information. Comments may be visible to project reviewers.
+          </p>
           <button type="button" disabled={!selectedTarget.id} onClick={() => onOpenCommentModal(selectedTarget)}>
             Add Comment
           </button>

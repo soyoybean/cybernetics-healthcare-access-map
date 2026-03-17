@@ -1,5 +1,19 @@
 # React + Vite
 
+## Comments Backend
+
+This app now expects a Vercel serverless comments API at `/api/comments` backed by Supabase.
+
+Deployment notes:
+
+- Add a Supabase project with a `comments` table.
+- Set `NEXT_PUBLIC_SUPABASE_URL` in the environment.
+- Set `SUPABASE_SERVICE_ROLE_KEY` in the server environment.
+- Set `TURNSTILE_SECRET_KEY` in the server environment.
+- Set `VITE_TURNSTILE_SITE_KEY` in the frontend environment.
+- The checked-in schema is also available at `db/comments.sql`.
+- The old local CSV file (`comments_db.csv`) is no longer used by the app runtime.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

@@ -617,6 +617,46 @@
   padding: 0.33rem;
 }
 
+.form-warning {
+  color: #8b5b00;
+  background: #fff7e6;
+  border: 1px solid #f0d596;
+  border-radius: 8px;
+  padding: 0.42rem 0.5rem;
+}
+
+.form-error {
+  color: #9d1f2f;
+  background: #fdecef;
+  border: 1px solid #efc4cb;
+  border-radius: 8px;
+  padding: 0.42rem 0.5rem;
+}
+
+.turnstile-slot {
+  min-height: 66px;
+}
+
+.thank-you-card {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid #d7e3f2;
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: #f7fbff;
+}
+
+.thank-you-card h5,
+.thank-you-card p {
+  margin: 0;
+}
+
+.thank-you-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .comment-list {
   margin-top: 0.5rem;
   display: grid;
