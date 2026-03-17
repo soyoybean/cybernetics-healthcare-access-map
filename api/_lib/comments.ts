@@ -46,6 +46,7 @@ const validateCreate = (body: Record<string, unknown>) => {
   const targetType = cleanText(body.targetType, 16)
   const targetId = cleanText(body.targetId, 128)
   const stakeholderCategory = sanitizeText(body.stakeholderCategory, 160)
+  const stakeholderDetail = sanitizeText(body.stakeholderDetail, 240)
   const noteText = sanitizeText(body.noteText, 4000)
   const displayName = sanitizeText(body.displayName, 120)
   const emailHash = cleanText(body.emailHash, 128)
@@ -66,6 +67,7 @@ const validateCreate = (body: Record<string, unknown>) => {
     targetType,
     targetId,
     stakeholderCategory,
+    stakeholderDetail,
     noteText,
     displayName,
     emailHash,
@@ -162,6 +164,7 @@ export const createComment = async (req: any, res: any) => {
     target_type: validated.targetType,
     target_id: validated.targetId,
     stakeholder_category: validated.stakeholderCategory,
+    stakeholder_detail: validated.stakeholderDetail || null,
     note_text: validated.noteText,
     email_hash: validated.emailHash,
     display_name: validated.displayName,

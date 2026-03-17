@@ -139,13 +139,6 @@ const rawLinks = [
 const links = rawLinks.map((link, index) => ({ ...link, id: `link-${index}` }))
 const stakeholderOptions = [...new Set(nodes.map((node) => node.label))]
 
-const composeStakeholderValue = (stakeholder, detail) => {
-  const cleanStakeholder = String(stakeholder || '').trim()
-  const cleanDetail = String(detail || '').trim()
-  if (!cleanDetail) return cleanStakeholder
-  return `${cleanStakeholder} - ${cleanDetail}`
-}
-
 const PERSPECTIVES = {
   community: {
     label: 'Community',
@@ -522,7 +515,8 @@ const CommentsPanel = memo(function CommentsPanel({
       await createComment({
         targetType: selectedTarget.type,
         targetId: selectedTarget.id,
-        stakeholderCategory: composeStakeholderValue(stakeholder, stakeholderDetail),
+        stakeholderCategory: stakeholder,
+        stakeholderDetail,
         noteText,
         email,
         displayName,
@@ -607,6 +601,7 @@ const CommentsPanel = memo(function CommentsPanel({
               Further specify who you are (optional)
               <input value={stakeholderDetail} onChange={(event) => setStakeholderDetail(event.target.value)} />
             </label>
+            <p className="micro private-note">This additional detail will be stored privately and will not be publicly displayed.</p>
             <label>
               Note
               <textarea rows={3} required value={noteText} onChange={(event) => setNoteText(event.target.value)} />
@@ -690,7 +685,8 @@ const CommentModal = memo(function CommentModal({
       await createComment({
         targetType: selectedTarget.type,
         targetId: selectedTarget.id,
-        stakeholderCategory: composeStakeholderValue(stakeholder, stakeholderDetail),
+        stakeholderCategory: stakeholder,
+        stakeholderDetail,
         noteText,
         email,
         displayName,
@@ -757,6 +753,7 @@ const CommentModal = memo(function CommentModal({
             Further specify who you are (optional)
             <input value={stakeholderDetail} onChange={(event) => setStakeholderDetail(event.target.value)} />
           </label>
+          <p className="micro private-note">This additional detail will be stored privately and will not be publicly displayed.</p>
           <label>
             Note
             <textarea rows={3} required value={noteText} onChange={(event) => setNoteText(event.target.value)} />

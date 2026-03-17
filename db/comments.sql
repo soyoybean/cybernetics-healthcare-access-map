@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS comments (
   target_type TEXT NOT NULL CHECK (target_type IN ('node', 'edge')),
   target_id TEXT NOT NULL,
   stakeholder_category TEXT NOT NULL,
+  stakeholder_detail TEXT,
   note_text TEXT NOT NULL,
   email_hash TEXT NOT NULL,
   display_name TEXT NOT NULL,
